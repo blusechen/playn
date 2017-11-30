@@ -91,6 +91,15 @@ public class GroupLayer extends ClippedLayer implements Iterable<Layer> {
   }
 
   /**
+   * Adds all supplied children to this layer, in order. See {@link #add(Layer)}.
+   */
+  public void add(Layer child0, Layer child1, Layer... childN) {
+    add(child0);
+    add(child1);
+    for (Layer child : childN) add(child);
+  }
+
+  /**
    * Adds the supplied layer to this group layer, adjusting its translation (relative to this group
    * layer) to the supplied values.
    *
@@ -132,6 +141,15 @@ public class GroupLayer extends ClippedLayer implements Iterable<Layer> {
           "[group=" + this + ", layer=" + child + "]");
     }
     remove(index);
+  }
+
+  /**
+   * Removes all supplied children from this layer, in order. See {@link #remove(Layer)}.
+   */
+  public void remove(Layer child0, Layer child1, Layer... childN) {
+    remove(child0);
+    remove(child1);
+    for (Layer child : childN) remove(child);
   }
 
   /**
@@ -190,8 +208,21 @@ public class GroupLayer extends ClippedLayer implements Iterable<Layer> {
     return super.hitTestDefault(point);
   }
 
+  @Override protected void visit(Visitor visitor, int depth) {
+    super.visit(visitor, depth);
+    int childDepth = depth+1;
+    for (int ii = 0, ll = children(); ii < ll; ii++) {
+      childAt(ii).visit(visitor, childDepth);
+    }
+  }
+
   @Override protected boolean disableClip () {
     return disableClip;
+  }
+
+  @Override protected void toString (StringBuilder buf) {
+    super.toString(buf);
+    buf.append(", children=").append(children.size());
   }
 
   @Override protected void paintClipped (Surface surf) {
@@ -199,10 +230,12 @@ public class GroupLayer extends ClippedLayer implements Iterable<Layer> {
     paintTx.set(surf.tx());
     // iterate manually to avoid creating an Iterator as garbage, this is inner-loop territory
     List<Layer> children = this.children;
+    Layer.paintNestLevel += 1;
     for (int ii = 0, ll = children.size(); ii < ll; ii++) {
       surf.tx().set(paintTx);
       children.get(ii).paint(surf);
     }
+    Layer.paintNestLevel -= 1;
   }
 
   int depthChanged(Layer child, float oldDepth) {

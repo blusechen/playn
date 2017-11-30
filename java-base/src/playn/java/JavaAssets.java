@@ -13,15 +13,18 @@
  */
 package playn.java;
 
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.awt.Font;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 
 import java.util.Arrays;
 import javax.imageio.ImageIO;
@@ -100,6 +103,17 @@ public class JavaAssets extends Assets {
     this.assetScale = new Scale(scaleFactor);
   }
 
+  /**
+   * Loads a Java font from {@code path}. Currently only TrueType ({@code .ttf}) fonts are
+   * supported.
+   *
+   * @param path the path to the font resource (relative to the asset manager's path prefix).
+   * @throws Exception if an error occurs loading or decoding the font.
+   */
+  public Font getFont(String path) throws Exception {
+    return requireResource(path).createFont();
+  }
+
   @Override public Image getRemoteImage(final String url, int width, int height) {
     final JavaImage image = new JavaImage(plat, true, width, height, url);
     exec.invokeAsync(new Runnable() {
@@ -131,7 +145,7 @@ public class JavaAssets extends Assets {
   }
 
   @Override
-  public byte[] getBytesSync(String path) throws Exception {
+  public ByteBuffer getBytesSync(String path) throws Exception {
     return requireResource(path).readBytes();
   }
 
@@ -161,7 +175,7 @@ public class JavaAssets extends Assets {
     URL url = getClass().getClassLoader().getResource(pathPrefix + path);
     if (url != null) {
       return url.getProtocol().equals("file") ?
-        new FileResource(new File(url.getPath())) :
+        new FileResource(new File(URLDecoder.decode(url.getPath(), "UTF-8"))) :
         new URLResource(url);
     }
     for (File dir : directories) {
@@ -214,11 +228,11 @@ public class JavaAssets extends Assets {
     public Font createFont() throws Exception {
       return Font.createFont(Font.TRUETYPE_FONT, openStream());
     }
-    public byte[] readBytes() throws IOException {
-      return toByteArray(openStream());
+    public ByteBuffer readBytes() throws IOException {
+      return ByteBuffer.wrap(toByteArray(openStream()));
     }
     public String readString() throws Exception {
-      return new String(readBytes(), "UTF-8");
+      return new String(toByteArray(openStream()), "UTF-8");
     }
   }
 
@@ -240,7 +254,7 @@ public class JavaAssets extends Assets {
     public FileResource(File file) {
       this.file = file;
     }
-    public InputStream openStream() throws IOException {
+    public FileInputStream openStream() throws IOException {
       return new FileInputStream(file);
     }
     public BufferedImage readImage() throws IOException {
@@ -252,14 +266,13 @@ public class JavaAssets extends Assets {
     @Override public Font createFont() throws Exception {
       return Font.createFont(Font.TRUETYPE_FONT, file);
     }
-    @Override public byte[] readBytes() throws IOException {
-      InputStream in = openStream();
-      try {
-        byte[] buffer = new byte[(int)file.length()]; // no >2GB files
-        in.read(buffer);
-        return buffer;
-      } finally {
-        in.close();
+    @Override public ByteBuffer readBytes() throws IOException {
+      try (FileInputStream in = openStream();
+           FileChannel fc = in.getChannel()) {
+        ByteBuffer buf = ByteBuffer.allocateDirect((int)fc.size()); // no >2GB files
+        fc.read(buf);
+        buf.flip();
+        return buf;
       }
     }
   }

@@ -17,10 +17,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import org.robovm.apple.coregraphics.CGImage;
 import org.robovm.apple.foundation.NSBundle;
 import org.robovm.apple.foundation.NSData;
+import org.robovm.apple.foundation.NSDataReadingOptions;
+import org.robovm.apple.foundation.NSErrorException;
 import org.robovm.apple.uikit.UIImage;
 
 import playn.core.*;
@@ -44,12 +47,17 @@ public class RoboAssets extends Assets {
     this.assetRoot = new File(bundleRoot, pathPrefix);
   }
 
-  @Override public Image getRemoteImage(String url, int width, int height) {
+  @Override public Image getRemoteImage(final String url, int width, int height) {
     final ImageImpl image = createImage(true, width, height, url);
     plat.net().req(url).execute().
       onSuccess(new Slot<Net.Response>() {
         public void onEmit (Net.Response rsp) {
-          image.succeed(toData(Scale.ONE, UIImage.create(new NSData(rsp.payload()))));
+          try {
+            image.succeed(toData(Scale.ONE, new UIImage(new NSData(rsp.payload()))));
+          } catch (Throwable t) {
+            plat.log().warn("Failed to decode remote image [url=" + url + "]", t);
+            image.fail(t);
+          }
         }
       }).
       onFailure(new Slot<Throwable>() {
@@ -71,23 +79,19 @@ public class RoboAssets extends Assets {
   @Override
   public String getTextSync(String path) throws Exception {
     plat.log().debug("Loading text " + path);
-    return new String(getBytesSync(path), "UTF-8");
+    ByteBuffer data = getBytesSync(path);
+    byte[] bytes;
+    if (data.hasArray()) bytes = data.array();
+    else data.get(bytes = new byte[data.remaining()]);
+    return new String(bytes, "UTF-8");
   }
 
   @Override
-  public byte[] getBytesSync(String path) throws Exception {
+  public ByteBuffer getBytesSync(String path) throws Exception {
     File fullPath = resolvePath(path);
     plat.log().debug("Loading bytes " + fullPath);
-    FileInputStream in = new FileInputStream(fullPath);
-    try {
-      byte[] data = new byte[(int)fullPath.length()];
-      if (in.read(data) != data.length) {
-        throw new IOException("Failed to read entire file: " + fullPath);
-      }
-      return data;
-    } finally {
-      in.close();
-    }
+    // this NSData will release resources when garbage collected
+    return NSData.read(fullPath, READ_OPTS).asByteBuffer();
   }
 
   @Override protected ImageImpl.Data load (String path) throws Exception {
@@ -97,7 +101,7 @@ public class RoboAssets extends Assets {
       if (!fullPath.exists()) continue;
 
       // plat.log().debug("Loading image: " + fullPath);
-      UIImage img = UIImage.create(fullPath);
+      UIImage img = UIImage.getImage(fullPath);
       if (img != null) return toData(rsrc.scale, img);
 
       // note this error if this is the lowest resolution image, but fall back to lower resolution
@@ -138,4 +142,7 @@ public class RoboAssets extends Assets {
     plat.log().warn("Missing sound: " + path);
     return new Sound.Error(new FileNotFoundException(path));
   }
+
+  protected static final NSDataReadingOptions READ_OPTS = new NSDataReadingOptions(
+    NSDataReadingOptions.MappedIfSafe.value()|NSDataReadingOptions.Uncached.value());
 }

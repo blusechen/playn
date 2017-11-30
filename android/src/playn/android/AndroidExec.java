@@ -15,24 +15,28 @@ package playn.android;
 
 import android.app.Activity;
 import android.os.AsyncTask;
-
-import react.Signal;
+import android.os.Looper;
 
 import playn.core.Exec;
 import playn.core.Log;
+import playn.core.Platform;
 
 public class AndroidExec extends Exec.Default {
 
   private final Activity activity;
 
-  public AndroidExec (Log log, Signal<? extends Object> frame, Activity activity) {
-    super(log, frame);
+  public AndroidExec (Platform plat, Activity activity) {
+    super(plat);
     this.activity = activity;
   }
 
   protected boolean isPaused () { return false; }
 
-  @Override public void invokeLater(Runnable action) {
+  @Override public boolean isMainThread () {
+    return Thread.currentThread() == Looper.getMainLooper().getThread();
+  }
+
+  @Override public void invokeLater (Runnable action) {
     // if we're paused, we need to run these on the main app thread instead of queueing them up for
     // processing on the run queue, because the run queue isn't processed while we're paused; the
     // main thread will ensure they're run serially, but also that they don't linger until the next
@@ -43,15 +47,15 @@ public class AndroidExec extends Exec.Default {
 
   @Override public boolean isAsyncSupported () { return true; }
 
-  @Override public void invokeAsync(final Runnable action) {
+  @Override public void invokeAsync (final Runnable action) {
     activity.runOnUiThread(new Runnable() {
       public void run () {
         new AsyncTask<Void,Void,Void>() {
           @Override public Void doInBackground(Void... params) {
             try {
               action.run();
-            } catch (Exception e) {
-              log.warn("Async task failure [task=" + action + "]", e);
+            } catch (Throwable t) {
+              plat.reportError("Async task failure [task=" + action + "]", t);
             }
             return null;
           }

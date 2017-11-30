@@ -17,7 +17,7 @@ package playn.core;
 
 import pythagoras.f.Dimension;
 import pythagoras.f.IDimension;
-import react.UnitSlot;
+import react.*;
 
 import static playn.core.GL20.*;
 
@@ -28,15 +28,55 @@ public abstract class Graphics {
 
   protected final Platform plat;
   protected final Dimension viewSizeM = new Dimension();
-  protected Scale scale;
-  protected int viewPixelWidth, viewPixelHeight;
+  protected final Value<OrientationDetail> orientDetailM = Value.create(OrientationDetail.UNKNOWN);
+
+  private Scale scale;
+  private int viewPixelWidth, viewPixelHeight;
   private Texture colorTex; // created lazily
+
+  /** Enumerates detailed device orientations. */
+  public static enum OrientationDetail {
+    /** Current device orientation is not known. */
+    UNKNOWN,
+    /** Perpendicular to the ground, top of device up. */
+    PORTRAIT,
+    /** Perpendicular to the ground, top of device down. */
+    PORTRAIT_UPSIDE_DOWN,
+    /** Perpendicular to the ground, top of device to the left. */
+    LANDSCAPE_LEFT,
+    /** Perpendicular to the ground, top of device to the right. */
+    LANDSCAPE_RIGHT,
+    /** Parallel to the ground, face up. */
+    FACE_UP,
+    /** Parallel to the ground, face down. */
+    FACE_DOWN
+  };
+
+  /** Enumerates simplified device orientations. */
+  public static enum Orientation { PORTRAIT, LANDSCAPE };
 
   /** Provides access to GL services. */
   public final GL20 gl;
 
   /** The current size of the graphics viewport. */
   public final IDimension viewSize = viewSizeM;
+
+  /** The current orientation of the device. Devices that do not support orientation will always be
+    * {@code PORTRAIT}. */
+  public final ValueView<Orientation> deviceOrient = orientDetailM.map(
+    new Function<OrientationDetail,Orientation>() {
+      public Orientation apply(OrientationDetail detail) {
+        switch (detail) {
+        case LANDSCAPE_LEFT: return Orientation.LANDSCAPE;
+        case LANDSCAPE_RIGHT: return Orientation.LANDSCAPE;
+        default: return Orientation.PORTRAIT;
+        }
+      }
+    });
+
+  /** The current orientation of the device in more detailed form. Devices that do not support
+    * orientation will always be {@code UNKNOWN}. */
+  public final ValueView<OrientationDetail> orientDetail = orientDetailM;
 
   /** The render target for the default framebuffer. */
   public RenderTarget defaultRenderTarget = new RenderTarget(this) {
@@ -104,15 +144,8 @@ public abstract class Graphics {
    */
   public abstract TextLayout[] layoutText (String text, TextFormat format, TextWrap wrap);
 
-  /**
-   * Queues the supplied graphics resource for disposal on the next frame tick. This is generally
-   * called from finalizers of graphics resource objects which discover that they are being garbage
-   * collected, but their GPU resources have not yet been freed.
-   */
-  public void queueForDispose (final Disposable resource) {
-    plat.frame.connect(new UnitSlot() {
-      public void onEmit () { resource.close(); }
-    }).once();
+  Exec exec () {
+    return plat.exec();
   }
 
   Texture colorTex () {
@@ -143,16 +176,24 @@ public abstract class Graphics {
   protected abstract Canvas createCanvasImpl (Scale scale, int pixelWidth, int pixelHeight);
 
   /**
-   * Informs the graphics system that the main viewport size or scale has changed. The supplied
-   * size should be in physical pixels.
+   * Informs the graphics system that the main framebuffer scaled has changed.
    */
-  protected void viewportChanged (Scale scale, int viewWidth, int viewHeight) {
+  protected void scaleChanged (Scale scale) {
+    // TODO: should we allow this to be reacted to? it only happens on the desktop Java backend...
     this.scale = scale;
-    viewPixelWidth = viewWidth;
-    viewPixelHeight = viewHeight;
-    viewSizeM.width = scale.invScaled(viewWidth);
-    viewSizeM.height = scale.invScaled(viewHeight);
-    // TODO: allow listening for view size change?
+  }
+
+  /**
+   * Informs the graphics system that the main framebuffer size has changed. The supplied size
+   * should be in physical pixels.
+   */
+  protected void viewportChanged (int pixelWidth, int pixelHeight) {
+    viewPixelWidth = pixelWidth;
+    viewPixelHeight = pixelHeight;
+    viewSizeM.width = scale.invScaled(pixelWidth);
+    viewSizeM.height = scale.invScaled(pixelHeight);
+    plat.log().info("viewPortChanged " + pixelWidth + "x" + pixelHeight + " / " + scale.factor +
+                    " -> " + viewSize);
   }
 
   int createTexture (Texture.Config config) {

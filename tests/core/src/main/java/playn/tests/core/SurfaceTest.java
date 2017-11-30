@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import pythagoras.f.AffineTransform;
 import pythagoras.f.FloatMath;
 import pythagoras.f.Rectangle;
 import react.RFuture;
@@ -36,9 +37,8 @@ public class SurfaceTest extends Test {
     };
     tile.state.onFailure(onError);
     orange.state.onFailure(onError);
-    RFuture.collect(Arrays.asList(tile.state, orange.state)).onSuccess(new UnitSlot() {
-      public void onEmit () { addTests(orange, tile); }
-    });
+    RFuture.collect(Arrays.asList(tile.state, orange.state)).
+      onSuccess(imgs -> addTests(orange, tile));
   }
 
   @Override
@@ -58,9 +58,7 @@ public class SurfaceTest extends Test {
     final int samples = 128, hsamples = samples/2;
     final float[] verts = new float[(samples+1)*4];
     final int[] indices = new int[samples*6];
-    tessellateCurve(0, 40*(float)Math.PI, verts, indices, new F() {
-      public float apply (float x) { return (float)Math.sin(x/20)*50; }
-    });
+    tessellateCurve(0, 40*(float)Math.PI, verts, indices, x -> (float)Math.sin(x/20)*50);
 
     float ygap = 20, ypos = 10;
 
@@ -95,21 +93,25 @@ public class SurfaceTest extends Test {
 
     ypos = 10;
 
+    final TriangleBatch triangleBatch = new TriangleBatch(game.graphics.gl);
+    final AffineTransform af = new AffineTransform().
+      scale(game.graphics.scale().factor, game.graphics.scale().factor).
+      translate(160, (ygap + 150));
+
     ypos = ygap + addTest(160, ypos, new Layer() {
       protected void paintImpl (Surface surf) {
         // fill some shapes with patterns
         surf.setFillPattern(ttex).fillRect(10, 0, 100, 100);
-        // use same fill pattern for the triangles
-        surf.translate(0, 160);
-        // TODO: triangles
         // render a sliding window of half of our triangles to test the slice rendering
-        // surf.fillTriangles(verts, offset*4, (hsamples+1)*4, indices, offset*6, hsamples*6, offset*2);
+        triangleBatch.addTris(ttex, Tint.NOOP_TINT, af,
+          verts, offset*4, (hsamples+1)*4, ttex.width(), ttex.height(),
+          indices, offset*6, hsamples*6, offset*2);
         offset += doff;
         if (offset == 0) doff = 1;
         else if (offset == hsamples) doff = -1;
       }
       private int offset = 0, doff = 1;
-    }, 120, 210, "ImmediateLayer patterned fillRect, fillTriangles");
+    }.setBatch(triangleBatch), 120, 210, "ImmediateLayer patterned fillRect, fillTriangles");
 
     TextureSurface patted = game.createSurface(100, 100);
     patted.begin().clear().setFillPattern(ttex).fillRect(0, 0, 100, 100).end().close();
@@ -162,25 +164,23 @@ public class SurfaceTest extends Test {
       game.rootLayer.add(dotl);
     }
 
-    conns.add(game.paint.connect(new Slot<Clock>() {
-      public void onEmit (Clock clock) {
-        for (ImageLayer dot : dots) {
-          if (Math.random() > 0.95) {
-            dot.setTranslation(dotBox.x + (float)Math.random()*(dotBox.width-10),
-                               dotBox.y + (float)Math.random()*(dotBox.height-10));
-          }
+    conns.add(game.paint.connect(clock -> {
+      for (ImageLayer dot : dots) {
+        if (Math.random() > 0.95) {
+          dot.setTranslation(dotBox.x + (float)Math.random()*(dotBox.width-10),
+                             dotBox.y + (float)Math.random()*(dotBox.height-10));
         }
-
-        float now = clock.tick/1000f;
-        float sin = Math.abs(FloatMath.sin(now)), cos = Math.abs(FloatMath.cos(now));
-        int sinColor = (int)(sin * 255), cosColor = (int)(cos * 255);
-        int c1 = (0xFF << 24) | (sinColor << 16) | (cosColor << 8);
-        int c2 = (0xFF << 24) | (cosColor << 16) | (sinColor << 8);
-        paintUpped.begin().clear().
-          setFillColor(c1).fillRect(0, 0, 50, 50).
-          setFillColor(c2).fillRect(50, 50, 50, 50).
-          end();
       }
+
+      float now = clock.tick/1000f;
+      float sin = Math.abs(FloatMath.sin(now)), cos = Math.abs(FloatMath.cos(now));
+      int sinColor = (int)(sin * 255), cosColor = (int)(cos * 255);
+      int c1 = (0xFF << 24) | (sinColor << 16) | (cosColor << 8);
+      int c2 = (0xFF << 24) | (cosColor << 16) | (sinColor << 8);
+      paintUpped.begin().clear().
+        setFillColor(c1).fillRect(0, 0, 50, 50).
+        setFillColor(c2).fillRect(50, 50, 50, 50).
+        end();
     }));
   }
 

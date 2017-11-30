@@ -24,6 +24,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.os.Bundle;
@@ -40,7 +41,8 @@ import android.widget.LinearLayout;
 public abstract class GameActivity extends Activity {
 
   private final int REQUIRED_CONFIG_CHANGES = (ActivityInfo.CONFIG_ORIENTATION |
-                                               ActivityInfo.CONFIG_KEYBOARD_HIDDEN);
+                                               ActivityInfo.CONFIG_KEYBOARD_HIDDEN |
+                                               ActivityInfo.CONFIG_SCREEN_SIZE);
 
   private AndroidPlatform platform;
   private GameViewGL gameView;
@@ -68,18 +70,15 @@ public abstract class GameActivity extends Activity {
     // Create our layout and configure the window.
     setContentView(gameView);
 
-    // Set the preferred orientation.
-    setRequestedOrientation(orientation());
-
     // Make sure the AndroidManifest.xml is set up correctly.
     try {
       ActivityInfo info = this.getPackageManager().getActivityInfo(
-        new ComponentName(appctx, this.getPackageName() + "." + this.getLocalClassName()), 0);
+        new ComponentName(appctx, this.getClass()), 0);
       if ((info.configChanges & REQUIRED_CONFIG_CHANGES) != REQUIRED_CONFIG_CHANGES) {
         new AlertDialog.Builder(this).setMessage(
           "Unable to guarantee application will handle configuration changes. " +
           "Please add the following line to the Activity manifest: " +
-          "      android:configChanges=\"keyboardHidden|orientation\"").show();
+          "      android:configChanges=\"keyboardHidden|orientation|screenSize\"").show();
       }
     } catch (NameNotFoundException e) {
       platform.log().warn("Cannot access game AndroidManifest.xml file.");
@@ -153,26 +152,6 @@ public abstract class GameActivity extends Activity {
  protected int makeWindowFlags () {
     return (WindowManager.LayoutParams.FLAG_FULLSCREEN |
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-  }
-
-  /**
-   * Determines whether or not a game should run in portrait orientation or not. Defaults to false.
-   * Override this method to return true to use portrait.
-   *
-   * @return Whether or not the game will run in portrait orientation
-   */
-  protected boolean usePortraitOrientation() {
-    return false;
-  }
-
-  /**
-   * Returns the orientation. Defaults to {@code ActivityInfo.SCREEN_ORIENTATION_PORTRAIT} or
-   * {@code ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE} based off the response from
-   * {@link #usePortraitOrientation()}.
-   */
-  protected int orientation() {
-    return usePortraitOrientation() ? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT :
-      ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
   }
 
   /**

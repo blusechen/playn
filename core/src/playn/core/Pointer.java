@@ -71,40 +71,50 @@ public class Pointer {
   public Signal<Event> events = Signal.create();
 
   public Pointer (Platform plat) {
-    // listen for mouse events and convert them to pointer events
-    plat.input().mouseEvents.connect(new Slot<Mouse.Event>() {
-      private boolean dragging;
-      @Override public void onEmit (Mouse.Event event) {
-        if (event instanceof Mouse.MotionEvent) {
-          if (dragging) forward(Event.Kind.DRAG, false, event);
-        } else if (event instanceof Mouse.ButtonEvent) {
-          Mouse.ButtonEvent bevent = (Mouse.ButtonEvent)event;
-          if (bevent.button == Mouse.ButtonEvent.Id.LEFT) {
-            dragging = bevent.down;
-            forward(bevent.down ? Event.Kind.START : Event.Kind.END, false, bevent);
-          }
-        }
-      }
-    });
+    this.plat = plat;
 
-    // listen for touch events and convert them to pointer events
-    plat.input().touchEvents.connect(new Slot<Touch.Event[]>() {
-      private int active = -1;
-      @Override public void onEmit (Touch.Event[] events) {
-        for (Touch.Event event : events) {
-          if (active == -1 && event.kind.isStart) active = event.id;
-          if (event.id == active) {
-            forward(Event.Kind.values()[event.kind.ordinal()], true, event);
-            if (event.kind.isEnd) active = -1;
+    // if this platform supports touch events, use those
+    if (plat.input().hasTouch()) {
+      plat.input().touchEvents.connect(new Slot<Touch.Event[]>() {
+        private int active = -1;
+        @Override public void onEmit (Touch.Event[] events) {
+          for (Touch.Event event : events) {
+            if (active == -1 && event.kind.isStart) active = event.id;
+            if (event.id == active) {
+              forward(Event.Kind.values()[event.kind.ordinal()], true, event);
+              if (event.kind.isEnd) active = -1;
+            }
           }
         }
-      }
-    });
+      });
+    }
+    // otherwise use mouse events if it has those
+    else if (plat.input().hasMouse()) {
+      plat.input().mouseEvents.connect(new Slot<Mouse.Event>() {
+        private boolean dragging;
+        @Override public void onEmit (Mouse.Event event) {
+          if (event instanceof Mouse.MotionEvent) {
+            if (dragging) forward(Event.Kind.DRAG, false, event);
+          } else if (event instanceof Mouse.ButtonEvent) {
+            Mouse.ButtonEvent bevent = (Mouse.ButtonEvent)event;
+            if (bevent.button == Mouse.ButtonEvent.Id.LEFT) {
+              dragging = bevent.down;
+              forward(bevent.down ? Event.Kind.START : Event.Kind.END, false, bevent);
+            }
+          }
+        }
+      });
+    }
+    // otherwise complain because what's going on?
+    else plat.log().warn("Platform has neither mouse nor touch events?", "type", plat.type());
   }
 
   protected void forward (Event.Kind kind, boolean isTouch, playn.core.Event.XY source) {
     if (!enabled || !events.hasConnections()) return;
-    events.emit(new Event(source.flags, source.time, source.x, source.y, kind, isTouch));
+    Event event = new Event(source.flags, source.time, source.x, source.y, kind, isTouch);
+    plat.dispatchEvent(events, event);
     // TODO: propagate prevent default back to original event
   }
+
+  private Platform plat;
 }

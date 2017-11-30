@@ -69,15 +69,15 @@ class PointerMouseTouchTest extends Test {
     x = 20;
 
     float boxWidth = 300, boxHeight = 110;
-    final Box mouse = new Box("Mouse", 0xffff8080, boxWidth, boxHeight);
+    Box mouse = new Box("Mouse", 0xffff8080, boxWidth, boxHeight);
     game.rootLayer.addAt(mouse.layer, x, y);
     y += mouse.layer.height() + 5;
 
-    final Box pointer = new Box("Pointer", 0xff80ff80, boxWidth, boxHeight);
+    Box pointer = new Box("Pointer", 0xff80ff80, boxWidth, boxHeight);
     game.rootLayer.addAt(pointer.layer, x, y);
     y += pointer.layer.height() + 5;
 
-    final Box touch = new Box("Touch", 0xff8080ff, boxWidth, boxHeight);
+    Box touch = new Box("Touch", 0xff8080ff, boxWidth, boxHeight);
     game.rootLayer.addAt(touch.layer, x, y);
 
     y = mouse.layer.ty();
@@ -308,20 +308,28 @@ class PointerMouseTouchTest extends Test {
   }
 
   protected String describe(Event.XY event, String handler) {
-    String time = "@" + (int)(event.time % 10000);
-    String pd = event.isSet(Event.F_PREVENT_DEFAULT) ? "pd " : "";
-    String msg = time + " " + pd + handler + " (" + event.x() + "," + event.y() + ")";
+    StringBuilder sb = new StringBuilder();
+    sb.append("@").append((int)(event.time % 10000)).append(" ");
+    sb.append(event.isSet(Event.F_PREVENT_DEFAULT) ? "pd " : "");
+    sb.append(handler).append(" (").append(event.x()).append(",").append(event.y()).append(")");
+    sb.append(" m[");
+    if (event.isAltDown()) sb.append("A");
+    if (event.isCtrlDown()) sb.append("C");
+    if (event.isMetaDown()) sb.append("M");
+    if (event.isShiftDown()) sb.append("S");
+    sb.append("]");
     if (event instanceof Pointer.Event) {
-      msg += " isTouch(" + ((Pointer.Event)event).isTouch + ")";
+      sb.append(" isTouch(").append(((Pointer.Event)event).isTouch).append(")");
     }
     if (event instanceof Mouse.ButtonEvent) {
-      msg += " button(" + ((Mouse.ButtonEvent)event).button + ")";
+      sb.append(" button(").append(((Mouse.ButtonEvent)event).button).append(")");
     }
     if (event instanceof Mouse.MotionEvent) {
       Mouse.MotionEvent me = (Mouse.MotionEvent)event;
-      msg += " d(" + me.dx + "," + me.dy + ")";
+      sb.append(" d(").append(me.dx).append(",").append(me.dy).append(")");
     }
-    return msg;
+
+    return sb.toString();
   }
 
   protected class Label {
@@ -356,9 +364,9 @@ class PointerMouseTouchTest extends Test {
         canvas.fillText(layout[line], 0, yy);
         yy += layout[line].size.height();
       }
-      if (yy > layer.height()) {
-        game.log.error("Clipped");
-      }
+      // if (yy > layer.height()) {
+      //   game.log.error("Clipped");
+      // }
       layer.end();
       dirty = false;
     }

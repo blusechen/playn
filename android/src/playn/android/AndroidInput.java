@@ -30,16 +30,22 @@ public class AndroidInput extends Input {
   private final AndroidPlatform plat;
 
   public AndroidInput (AndroidPlatform plat) {
+    super(plat);
     this.plat = plat;
   }
 
-  @Override
-  public boolean hasHardwareKeyboard() {
+  // public boolean hasMouse () { return false; }
+  // TODO: there seems to be no way to tell if android has mouse, but motion events have extra
+  // info when they come from a mouse, so maybe we can dispatch those differently?
+
+  @Override public boolean hasTouch () { return true; }
+
+  @Override public boolean hasHardwareKeyboard () {
     return false; // TODO: return true for devices that have a hardware keyboard
   }
 
-  @Override public RFuture<String> getText(final Keyboard.TextType ttype, final String label,
-                                           final String initVal) {
+  @Override public RFuture<String> getText (final Keyboard.TextType ttype, final String label,
+                                            final String initVal) {
     final RPromise<String> result = plat.exec().deferredPromise();
     plat.activity.runOnUiThread(new Runnable() {
       public void run () {
@@ -86,15 +92,43 @@ public class AndroidInput extends Input {
     return result;
   }
 
+  @Override public RFuture<Boolean> sysDialog (final String title, final String text,
+                                               final String ok, final String cancel) {
+    final RPromise<Boolean> result = plat.exec().deferredPromise();
+    plat.activity.runOnUiThread(new Runnable() {
+      public void run () {
+        AlertDialog.Builder alert = new AlertDialog.Builder(plat.activity).
+          setTitle(title).setMessage(text);
+        alert.setPositiveButton(ok, new DialogInterface.OnClickListener() {
+          public void onClick(DialogInterface dialog, int whichButton) {
+            result.succeed(true);
+          }
+        });
+        if (cancel != null) alert.setNegativeButton(cancel, new DialogInterface.OnClickListener() {
+          public void onClick(DialogInterface dialog, int whichButton) {
+            result.succeed(false);
+          }
+        });
+        alert.show();
+      }
+    });
+    return result;
+  }
+
   void onKeyDown (int keyCode, KeyEvent nativeEvent) {
     long time = nativeEvent.getEventTime();
-    dispatch(new Keyboard.KeyEvent(0, time, keyForCode(keyCode), true));
+    Keyboard.KeyEvent event = new Keyboard.KeyEvent(0, time, keyForCode(keyCode), true);
+    event.setFlag(mods(nativeEvent));
+    dispatch(event);
     int unicodeChar = nativeEvent.getUnicodeChar();
     if (unicodeChar != 0) dispatch(new Keyboard.TypedEvent(0, time, (char)unicodeChar));
   }
 
   void onKeyUp (int keyCode, KeyEvent nativeEvent) {
-    dispatch(new Keyboard.KeyEvent(0, nativeEvent.getEventTime(), keyForCode(keyCode), false));
+    long time = nativeEvent.getEventTime();
+    Keyboard.KeyEvent event = new Keyboard.KeyEvent(0, time, keyForCode(keyCode), false);
+    event.setFlag(mods(nativeEvent));
+    dispatch(event);
   }
 
   boolean onTouch (MotionEvent event) {
@@ -105,7 +139,7 @@ public class AndroidInput extends Input {
       final Touch.Event[] touches = parseMotionEvent(event, kind);
       // process it (issuing game callbacks) on the GL/Game thread
       plat.exec().invokeLater(new Runnable() {
-        public void run() { plat.input().touchEvents.emit(touches); }
+        public void run() { plat.dispatchEvent(touchEvents, touches); }
       });
     }
 
@@ -113,9 +147,14 @@ public class AndroidInput extends Input {
     return kind != null;
   }
 
+  private int mods (KeyEvent event) {
+    return modifierFlags(event.isAltPressed(), event.isCtrlPressed(), event.isMetaPressed(),
+                         event.isShiftPressed());
+  }
+
   private void dispatch (final Keyboard.Event event) {
     plat.exec().invokeLater(new Runnable() {
-      @Override public void run() { keyboardEvents.emit(event); }
+      @Override public void run() { plat.dispatchEvent(keyboardEvents, event); }
     });
   }
 
@@ -345,7 +384,7 @@ public class AndroidInput extends Input {
       IPoint xy = plat.graphics().transformTouch(event.getX(tt), event.getY(tt));
       float pressure = event.getPressure(tt);
       float size = event.getSize(tt);
-      int id = event.getPointerId(tt);
+      int id = event.getPointerId(tt)+1;
       touches[tidx++] = new Touch.Event(0, time, xy.x(), xy.y(), kind, id, pressure, size);
     }
     return touches;

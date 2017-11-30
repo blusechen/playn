@@ -15,7 +15,9 @@
  */
 package playn.html;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.google.gwt.core.client.GWT;
@@ -27,12 +29,14 @@ import com.google.gwt.regexp.shared.RegExp;
 import com.google.gwt.resources.client.DataResource;
 import com.google.gwt.resources.client.ImageResource;
 import com.google.gwt.resources.client.ResourcePrototype;
+import com.google.gwt.typedarrays.shared.TypedArrays;
 import com.google.gwt.user.client.Window;
 import com.google.gwt.xhr.client.ReadyStateChangeHandler;
 import com.google.gwt.xhr.client.XMLHttpRequest;
 
 import playn.core.*;
 import playn.html.XDomainRequest.Handler;
+import react.Function;
 import react.RFuture;
 import react.RPromise;
 
@@ -100,7 +104,9 @@ public class HtmlAssets extends Assets {
   }
 
   @Override public Image getImage (String path) {
-    return getImage(path, Scale.ONE);
+    Scale assetScale = (this.assetScale == null) ? Scale.ONE : this.assetScale;
+    List<Scale.ScaledResource> rsrcs = assetScale.getScaledResources(path);
+    return getImage(rsrcs.get(0).path, rsrcs.get(0).scale);
   }
 
   protected HtmlImage getImage (String path, Scale scale) {
@@ -145,7 +151,6 @@ public class HtmlAssets extends Assets {
 
   @Override
   public RFuture<String> getText(final String path) {
-    RPromise<String> result = RPromise.create();
     final String fullPath = pathPrefix + path;
     /*
      * Except for IE, all browsers support on-domain and cross-domain XHR via
@@ -158,23 +163,40 @@ public class HtmlAssets extends Assets {
      * running on IE.
      */
     try {
-      doXhr(fullPath, result);
+      return doXhr(fullPath, XMLHttpRequest.ResponseType.Default).
+        map(new Function<XMLHttpRequest,String>() {
+          public String apply (XMLHttpRequest xhr) {
+            return xhr.getResponseText();
+          }
+        });
     } catch (JavaScriptException e) {
       if (Window.Navigator.getUserAgent().indexOf("MSIE") != -1) {
-        doXdr(fullPath, result);
+        return doXdr(fullPath).map(new Function<XDomainRequest,String>() {
+          public String apply (XDomainRequest xdr) {
+            return xdr.getResponseText();
+          }
+        });
       } else {
         throw e;
       }
     }
-    return result;
   }
 
-  @Override public byte[] getBytesSync(String path) throws Exception {
+  @Override
+  public ByteBuffer getBytesSync(String path) throws Exception {
     throw new UnsupportedOperationException("getByteSync(" + path + ")");
   }
 
-  @Override public RFuture<byte[]> getBytes(String path) {
-    return RFuture.failure(new UnsupportedOperationException("getByte(" + path + ")"));
+  @Override
+  public RFuture<ByteBuffer> getBytes(final String path) {
+    if (!TypedArrays.isSupported()) return RFuture.failure(
+      new UnsupportedOperationException("TypedArrays not supported by this browser."));
+    return doXhr(pathPrefix + path, XMLHttpRequest.ResponseType.ArrayBuffer).
+      map(new Function<XMLHttpRequest,ByteBuffer>() {
+        public ByteBuffer apply (XMLHttpRequest xhr) {
+          return TypedArrayHelper.wrap(xhr.getResponseArrayBuffer());
+        }
+      });
   }
 
   @Override protected ImageImpl.Data load (String path) throws Exception {
@@ -194,7 +216,8 @@ public class HtmlAssets extends Assets {
     return (assetScale != null) ? assetScale : plat.graphics().scale();
   }
 
-  private void doXdr(final String path, final RPromise<String> result) {
+  private RFuture<XDomainRequest> doXdr(final String path) {
+    final RPromise<XDomainRequest> result = RPromise.create();
     XDomainRequest xdr = XDomainRequest.create();
     xdr.setHandler(new Handler() {
       @Override public void onTimeout(XDomainRequest xdr) {
@@ -208,7 +231,7 @@ public class HtmlAssets extends Assets {
 
       @Override public void onLoad(XDomainRequest xdr) {
         if (LOG_XHR_SUCCESS) plat.log().debug("xdr::onLoad[" + path + "]()");
-        result.succeed(xdr.getResponseText());
+        result.succeed(xdr);
       }
 
       @Override public void onError(XDomainRequest xdr) {
@@ -220,10 +243,18 @@ public class HtmlAssets extends Assets {
     xdr.open("GET", path);
     if (LOG_XHR_SUCCESS) plat.log().debug("xdr.send()...");
     xdr.send();
+    return result;
   }
 
-  private void doXhr(final String path, final RPromise<String> result) {
+  private RFuture<XMLHttpRequest> doXhr(final String path, XMLHttpRequest.ResponseType rtype) {
+    final RPromise<XMLHttpRequest> result = RPromise.create();
     XMLHttpRequest xhr = XMLHttpRequest.create();
+
+    // IE needs the XHR to be opened before setting the response type
+    if (LOG_XHR_SUCCESS) plat.log().debug("xhr.open('GET', '" + path + "')...");
+    xhr.open("GET", path);
+
+    xhr.setResponseType(rtype);
     xhr.setOnReadyStateChange(new ReadyStateChangeHandler() {
       @Override public void onReadyStateChange(XMLHttpRequest xhr) {
         int readyState = xhr.getReadyState();
@@ -238,15 +269,15 @@ public class HtmlAssets extends Assets {
             if (LOG_XHR_SUCCESS) plat.log().debug("xhr::onReadyStateChange[" + path + "]" +
                                                   "(readyState = " + readyState +
                                                   "; status = " + status + ")");
-            result.succeed(xhr.getResponseText());
+            result.succeed(xhr);
           }
         }
       }
     });
-    if (LOG_XHR_SUCCESS) plat.log().debug("xhr.open('GET', '" + path + "')...");
-    xhr.open("GET", path);
+
     if (LOG_XHR_SUCCESS) plat.log().debug("xhr.send()...");
     xhr.send();
+    return result;
   }
 
   private String getKey (String fullPath) {

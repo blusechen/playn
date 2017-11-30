@@ -21,8 +21,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 import org.robovm.apple.foundation.NSData;
-import org.robovm.apple.foundation.NSDataReadingOptions;
-import org.robovm.apple.foundation.NSRange;
+import org.robovm.apple.foundation.NSErrorException;
 
 import static playn.robovm.OpenAL.*;
 
@@ -97,15 +96,29 @@ public class CAFLoader {
   }
 
   public static void load(File path, int bufferId) {
-    // mmap (if possible) the audio file for efficient reading/uploading
-    NSData data = NSData.read(path, READ_OPTS);
+    NSData data = null;
+    try {
+      // mmap (if possible) the audio file for efficient reading/uploading
+      data = NSData.read(path, RoboAssets.READ_OPTS);
+      load(data.asByteBuffer(), path.getName(), bufferId);
+    } catch (NSErrorException e) {
+      throw new RuntimeException(e.toString());
+    } finally {
+      // now dispose the mmap'd file to free up resources
+      if (data != null) {
+        data.dispose();
+      }
+    }
+  }
 
+  public static void load(ByteBuffer data, String source, int bufferId) {
     // read the CAFF metdata to find out the audio format and the data offset/length
-    ByteBuffer buf = data.asByteBuffer().order(ByteOrder.BIG_ENDIAN);
+    ByteBuffer buf = data.duplicate().order(ByteOrder.BIG_ENDIAN);
     if (!getString(buf, 4).equals("caff")) {
-      throw new RuntimeException("Input file not CAFF: " + path);
+      throw new RuntimeException("Input file not CAFF: " + source);
     }
     buf.position(buf.position()+4); // skip rest of caf file header
+
     CAFDesc desc = null;
     int offset = 8, dataOffset = 0, dataLength = 0;
     do {
@@ -114,25 +127,29 @@ public class CAFLoader {
       offset += 12;
 
       if (type.equals("data")) {
+        // "data" chunk size may be unspecified, in that case it means the rest of file is the
+        // "data" chunk
+        if (size <= 0) {
+          size = buf.limit() - offset;
+        }
         dataOffset = offset;
         dataLength = size;
+
       } else if (type.equals("desc")) {
         desc = new CAFDesc(buf);
         if ("ima4".equalsIgnoreCase(desc.formatID))
           throw new RuntimeException("Cannot use compressed CAFF. " +
-                                     "Use AIFC for compressed audio on iOS.");
+                  "Use AIFC for compressed audio on iOS.");
       }
 
       offset += size;
       buf.position(offset);
     } while (dataOffset == 0);
 
-    // upload the audio data to OpenAL straight from the mmap'd file
-    ByteBuffer adata = data.getSubdata(new NSRange(dataOffset, dataLength)).asByteBuffer();
-    alBufferData(bufferId, desc.getALFormat(), adata, dataLength, (int)desc.sampleRate);
-
-    // now dispose the mmap'd file to free up resources
-    data.dispose();
+    // upload the audio data to OpenAL straight from the buffer
+    data.position(dataOffset);
+    data.limit(dataLength);
+    alBufferData(bufferId, desc.getALFormat(), data, dataLength, (int)desc.sampleRate);
 
     // finally freak out if OpenAL didn't like what we sent it
     int error = alGetError();
@@ -150,7 +167,4 @@ public class CAFLoader {
       throw new RuntimeException(uee);
     }
   }
-
-  private static final NSDataReadingOptions READ_OPTS = new NSDataReadingOptions(
-    NSDataReadingOptions.MappedIfSafe.value()|NSDataReadingOptions.Uncached.value());
 }

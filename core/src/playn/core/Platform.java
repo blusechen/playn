@@ -101,6 +101,18 @@ public abstract class Platform {
     log().warn(message, cause);
   }
 
+  /**
+   * Dispatches {@code event} on {@code signal} and catches any error that propagates out of the
+   * event dispatch, reporting it via {@link #reportError}.
+   */
+  public <E> void dispatchEvent (Signal<E> signal, E event) {
+    try {
+      signal.emit(event);
+    } catch (Throwable cause) {
+      reportError("Event dispatch failure", cause);
+    }
+  }
+
   /** @deprecated Use {@link Exec#invokeLater}. */
   @Deprecated public void invokeLater (Runnable runnable) { exec().invokeLater(runnable); }
   /** @deprecated Use {@link Exec#isAsyncSupported}. */
@@ -110,6 +122,6 @@ public abstract class Platform {
 
   protected void emitFrame () {
     try { frame.emit(this); }
-    catch (Exception e) { log().warn("Frame tick exception", e); }
+    catch (Throwable e) { reportError("Frame tick exception", e); }
   }
 }

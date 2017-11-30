@@ -19,52 +19,58 @@ public class SoundTest extends Test {
   }
 
   @Override public void init() {
-    float x = 50;
-    final CanvasLayer actions = new CanvasLayer(game.graphics, 300, 300);
+    CanvasLayer actions = new CanvasLayer(game.graphics, 300, 300);
+    float x = 50, y = 50;
 
-    final Sound fanfare = loadSound("sounds/fanfare");
-    x = addButton("Play Fanfare", new Runnable() {
-      public void run() {
-        fanfare.play();
-        addAction(actions, "Played Fanfare.");
-      }
-    }, x, 100);
+    Sound fanfare = loadSound("sounds/fanfare");
+    float ffx = addButton("Play Fanfare", x, y, () -> {
+      fanfare.play();
+      addAction(actions, "Played Fanfare.");
+    });
 
     Sound lfanfare = loadSound("sounds/fanfare");
     lfanfare.setLooping(true);
-    x = addLoopButtons(actions, "Fanfare", lfanfare, x);
+    addLoopButtons(actions, "Fanfare", lfanfare, ffx, y);
+    y += 50;
 
     Sound bling = loadSound("sounds/bling");
     bling.setLooping(true);
-    x = addLoopButtons(actions, "Bling", bling, x);
+    addLoopButtons(actions, "Bling", bling, x, y);
+    y += 50;
 
-    game.rootLayer.addAt(actions, 50, 150);
+    Sound music = loadMusic("sounds/music");
+    music.setLooping(true);
+    addLoopButtons(actions, "Music", music, x, y);
+    y += 50;
+
+    game.rootLayer.addAt(actions, x, y);
   }
 
-  protected Sound loadSound(final String path) {
+  protected Sound loadSound(String path) {
     Sound sound = game.assets.getSound(path);
     sound.state.onFailure(logFailure("Sound loading error: " + path));
     return sound;
   }
 
-  protected float addLoopButtons(final CanvasLayer actions, final String name, final Sound sound,
-                                 float x) {
-    x = addButton("Loop " + name, new Runnable() {
-      public void run() {
-        if (!sound.isPlaying()) {
-          sound.play();
-          addAction(actions, "Starting looping " + name + ".");
-        }
+  protected Sound loadMusic(String path) {
+    Sound sound = game.assets.getMusic(path);
+    sound.state.onFailure(logFailure("Music loading error: " + path));
+    return sound;
+  }
+
+  protected float addLoopButtons(CanvasLayer actions, String name, Sound sound, float x, float y) {
+    x = addButton("Loop " + name, x, y, () -> {
+      if (!sound.isPlaying()) {
+        sound.play();
+        addAction(actions, "Starting looping " + name + ".");
       }
-    }, x, 100);
-    x = addButton("Stop Loop " + name, new Runnable() {
-      public void run() {
-        if (sound.isPlaying()) {
-          sound.stop();
-          addAction(actions, "Stopped looping " + name + ".");
-        }
+    });
+    x = addButton("Stop Loop " + name, x, y, () -> {
+      if (sound.isPlaying()) {
+        sound.stop();
+        addAction(actions, "Stopped looping " + name + ".");
       }
-    }, x, 100);
+    });
     return x;
   }
 

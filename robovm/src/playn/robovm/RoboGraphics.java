@@ -19,6 +19,7 @@ import org.robovm.apple.coregraphics.CGColorSpace;
 import org.robovm.apple.coregraphics.CGImageAlphaInfo;
 import org.robovm.apple.coregraphics.CGRect;
 import org.robovm.apple.uikit.UIDevice;
+import org.robovm.apple.uikit.UIDeviceOrientation;
 import org.robovm.apple.uikit.UIScreen;
 import org.robovm.apple.uikit.UIUserInterfaceIdiom;
 
@@ -36,7 +37,8 @@ public class RoboGraphics extends Graphics {
   // a shared colorspace instance for use all over the place
   static final CGColorSpace colorSpace = CGColorSpace.createDeviceRGB();
 
-  final RoboPlatform plat;
+  final Platform plat;
+  final private RoboPlatform.Config config;
   private final float touchScale;
   private final Point touchTemp = new Point();
   private final Dimension screenSize = new Dimension();
@@ -46,21 +48,22 @@ public class RoboGraphics extends Graphics {
   private static final int S_SIZE = 10;
   final CGBitmapContext scratchCtx = createCGBitmap(S_SIZE, S_SIZE);
 
-  private static boolean useHalfSize (RoboPlatform plat) {
+  private static boolean useHalfSize (RoboPlatform.Config config) {
     boolean isPad = UIDevice.getCurrentDevice().getUserInterfaceIdiom() == UIUserInterfaceIdiom.Pad;
-    return isPad && plat.config.iPadLikePhone;
+    return isPad && config.iPadLikePhone;
   }
-  private static Scale viewScale (RoboPlatform plat) {
+  private static Scale viewScale (RoboPlatform.Config config) {
     float deviceScale = (float)UIScreen.getMainScreen().getScale();
-    boolean useHalfSize = useHalfSize(plat);
+    boolean useHalfSize = useHalfSize(config);
     return new Scale((useHalfSize ? 2 : 1) * deviceScale);
   }
 
-  public RoboGraphics(RoboPlatform plat, CGRect bounds) {
-    super(plat, new RoboGL20(), viewScale(plat));
+  public RoboGraphics(Platform plat, RoboPlatform.Config config, CGRect bounds) {
+    super(plat, new RoboGL20(), viewScale(config));
     this.plat = plat;
-    this.touchScale = useHalfSize(plat) ? 2 : 1;
-    setSize(bounds);
+    this.config = config;
+    this.touchScale = useHalfSize(config) ? 2 : 1;
+    boundsChanged(bounds);
   }
 
   @Override public IDimension screenSize() {
@@ -72,7 +75,7 @@ public class RoboGraphics extends Graphics {
     // tODO: (plat.osVersion < 8) manually flip width/height when in landscape?
     screenSize.width = (int)screenBounds.getWidth();
     screenSize.height = (int)screenBounds.getHeight();
-    if (useHalfSize(plat)) {
+    if (useHalfSize(config)) {
       screenSize.width /= 2;
       screenSize.height /= 2;
     }
@@ -91,7 +94,7 @@ public class RoboGraphics extends Graphics {
 
   @Override protected Canvas createCanvasImpl (Scale scale, int pixelWidth, int pixelHeight) {
     return new RoboCanvas(this, new RoboCanvasImage(this, scale, pixelWidth, pixelHeight,
-                                                    plat.config.interpolateCanvasDrawing));
+                                                    config.interpolateCanvasDrawing));
   }
 
   static CGBitmapContext createCGBitmap(int width, int height) {
@@ -99,30 +102,30 @@ public class RoboGraphics extends Graphics {
       CGImageAlphaInfo.PremultipliedLast.value()));
   }
 
+  static OrientationDetail toOrientationDetail(UIDeviceOrientation orient) {
+    switch (orient) {
+    case Portrait: return OrientationDetail.PORTRAIT;
+    case PortraitUpsideDown: return OrientationDetail.PORTRAIT_UPSIDE_DOWN;
+    case LandscapeLeft: return OrientationDetail.LANDSCAPE_LEFT;
+    case LandscapeRight: return OrientationDetail.LANDSCAPE_RIGHT;
+    case FaceUp: return OrientationDetail.FACE_UP;
+    case FaceDown: return OrientationDetail.FACE_DOWN;
+    default: return OrientationDetail.UNKNOWN;
+    }
+  }
+
   // called when our view appears
   void viewDidInit(CGRect bounds) {
-    // System.err.println("viewDidInit(" + bounds + ")");
     defaultFramebuffer = gl.glGetInteger(GL20.GL_FRAMEBUFFER_BINDING);
     if (defaultFramebuffer == 0) throw new IllegalStateException(
       "Failed to determine defaultFramebuffer");
-    setSize(bounds);
-    // TODO: anything else?
+    boundsChanged(bounds);
   }
 
-  // called when our view changes size (at init, and when it rotates)
-  void setSize(CGRect bounds) {
-    // boolean useHalfSize = useHalfSize(plat);
-    int viewWidth = scale.scaledCeil((float)bounds.getWidth());
-    int viewHeight = scale.scaledCeil((float)bounds.getHeight());
-    viewportChanged(scale, viewWidth, viewHeight);
-
-    // System.err.println("Screen size " + screenSize());
-    // System.err.println("View size " + viewSize + " " + viewWidth + "x" + viewHeight);
-    // System.err.println("View scale " + scale);
-    // System.err.println("Touch scale " + touchScale);
-    // System.err.println("DRT " + defaultRenderTarget);
-
-    // TODO: anything else?
+  void boundsChanged(CGRect bounds) {
+    viewportChanged(scale().scaledCeil((float)bounds.getWidth()),
+                    scale().scaledCeil((float)bounds.getHeight()));
+    orientDetailM.update(toOrientationDetail(UIDevice.getCurrentDevice().getOrientation()));
   }
 
   IPoint transformTouch(float x, float y) {

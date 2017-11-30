@@ -80,6 +80,15 @@ public class HtmlCanvas extends Canvas {
     return this;
   }
 
+  @Override public Canvas drawArc(float cx, float cy, float r, float startAngle, float arcAngle) {
+    boolean ccw = arcAngle > 0;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -startAngle, -(startAngle + arcAngle), ccw);
+    ctx.stroke();
+    isDirty = true;
+    return this;
+  }
+
   @Override public Canvas drawText(String text, float x, float y) {
     ctx.fillText(text, x, y);
     isDirty = true;

@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Paint;
 import android.graphics.Typeface;
@@ -43,7 +44,6 @@ public class AndroidGraphics extends Graphics {
     void onSurfaceCreated();
   }
 
-  private final AndroidPlatform plat;
   private final Point touchTemp = new Point();
 
   private Map<Refreshable, Void> refreshables =
@@ -63,46 +63,16 @@ public class AndroidGraphics extends Graphics {
 
   final Bitmap.Config preferredBitmapConfig;
 
-  public AndroidGraphics(AndroidPlatform plat, Bitmap.Config bitmapConfig) {
-    super(plat, new AndroidGL20(), new Scale(plat.activity.scaleFactor()));
-    this.plat = plat;
+  public AndroidGraphics(Platform plat, Bitmap.Config bitmapConfig, float scaleFactor) {
+    super(plat, new AndroidGL20(), new Scale(scaleFactor));
     this.preferredBitmapConfig = bitmapConfig;
   }
 
-  void onSizeChanged(int viewWidth, int viewHeight) {
-    screenSize.width = viewWidth / scale.factor;
-    screenSize.height = viewHeight / scale.factor;
-    plat.log().info("Updating size " + viewWidth + "x" + viewHeight + " / " + scale.factor +
-                    " -> " + screenSize);
-    viewportChanged(scale, viewWidth, viewHeight);
-  }
-
   /**
    * Registers a font with the graphics system.
    *
-   * @param path the path to the font resource (relative to the asset manager's path prefix).
-   * @param name the name under which to register the font.
-   * @param style the style variant of the specified name provided by the font file. For example
-   * one might {@code registerFont("myfont.ttf", "My Font", Font.Style.PLAIN)} and
-   * {@code registerFont("myfontb.ttf", "My Font", Font.Style.BOLD)} to provide both the plain and
-   * bold variants of a particular font.
-   * @param ligatureGlyphs any known text sequences that are converted into a single ligature
-   * character in this font. This works around an Android bug where measuring text for wrapping
-   * that contains character sequences that are converted into ligatures (e.g. "fi" or "ae")
-   * incorrectly reports the number of characters "consumed" from the to-be-wrapped string.
-   */
-  public void registerFont(String path, String name, Font.Style style, String... ligatureGlyphs) {
-    try {
-      registerFont(plat.assets().getTypeface(path), name, style, ligatureGlyphs);
-    } catch (Exception e) {
-      plat.reportError("Failed to load font [name=" + name + ", path=" + path + "]", e);
-    }
-  }
-
-  /**
-   * Registers a font with the graphics system.
-   *
-   * @param face the typeface to be registered.
+   * @param face the typeface to be registered. It can be loaded via
+   * {@link AndroidAssets#getTypeface}.
    * @param name the name under which to register the font.
    * @param style the style variant of the specified name provided by the font file. For example
    * one might {@code registerFont("myfont.ttf", "My Font", Font.Style.PLAIN)} and
@@ -148,10 +118,46 @@ public class AndroidGraphics extends Graphics {
     canvasScaleFunc = scaleFunc;
   }
 
+  /**
+   * Informs the graphics system that the surface into which it is rendering was created.
+   */
+  public void onSurfaceCreated () {
+    // TODO: incrementEpoch(); // increment our GL context epoch
+    // TODO: init(); // reinitialize GL
+    for (Refreshable ref : refreshables.keySet()) ref.onSurfaceCreated();
+  }
+
+  /**
+   * Informs the graphics system that the surface into which it is rendering has changed size. The
+   * supplied width and height are in pixels, not display units.
+   */
+  public void onSurfaceChanged (int pixelWidth, int pixelHeight, int orient) {
+    viewportChanged(pixelWidth, pixelHeight);
+    screenSize.setSize(viewSize);
+    switch (orient) {
+    case Configuration.ORIENTATION_LANDSCAPE:
+      orientDetailM.update(OrientationDetail.LANDSCAPE_LEFT);
+      break;
+    case Configuration.ORIENTATION_PORTRAIT:
+      orientDetailM.update(OrientationDetail.PORTRAIT);
+      break;
+    default: // Configuration.ORIENTATION_UNDEFINED
+      orientDetailM.update(OrientationDetail.UNKNOWN);
+      break;
+    }
+  }
+
+  /**
+   * Informs the graphics system that the surface into which it is rendering was lost.
+   */
+  public void onSurfaceLost () {
+    for (Refreshable ref : refreshables.keySet()) ref.onSurfaceLost();
+  }
+
   @Override public IDimension screenSize () { return screenSize; }
 
   @Override public Canvas createCanvas (float width, float height) {
-    Scale scale = canvasScaleFunc.computeScale(width, height, this.scale);
+    Scale scale = canvasScaleFunc.computeScale(width, height, scale());
     return createCanvasImpl(scale, scale.scaledCeil(width), scale.scaledCeil(height));
   }
 
@@ -176,16 +182,6 @@ public class AndroidGraphics extends Graphics {
     return new AndroidFont(face, font.size, ligatureHacks.get(key));
   }
 
-  void onSurfaceCreated() {
-    // TODO: incrementEpoch(); // increment our GL context epoch
-    // TODO: init(); // reinitialize GL
-    for (Refreshable ref : refreshables.keySet()) ref.onSurfaceCreated();
-  }
-
-  void onSurfaceLost() {
-    for (Refreshable ref : refreshables.keySet()) ref.onSurfaceLost();
-  }
-
   void addRefreshable(Refreshable ref) {
     assert ref != null;
     refreshables.put(ref, null);
@@ -198,6 +194,7 @@ public class AndroidGraphics extends Graphics {
 
   IPoint transformTouch(float x, float y) {
     // TODO: return ctx.rootTransform().inverseTransform(touchTemp.set(x, y), touchTemp);
-    return touchTemp.set(x / scale.factor, y / scale.factor);
+    float factor = scale().factor;
+    return touchTemp.set(x / factor, y / factor);
   }
 }

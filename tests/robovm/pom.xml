@@ -4,7 +4,7 @@
   <parent>
     <groupId>io.playn.tests</groupId>
     <artifactId>playn-tests</artifactId>
-    <version>2.0-SNAPSHOT</version>
+    <version>2.1-SNAPSHOT</version>
   </parent>
 
   <artifactId>playn-tests-robovm</artifactId>
@@ -24,23 +24,46 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>1.6</version>
+        <executions>
+          <execution>
+            <phase>generate-resources</phase>
+            <configuration>
+              <target>
+                <symlink overwrite="true" link="${basedir}/resources/assets"
+                         resource="${basedir}/../assets/src/main/resources/assets"/>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
   <profiles>
     <profile>
       <id>robosim</id>
       <build>
         <plugins>
           <plugin>
-            <groupId>org.robovm</groupId>
+            <groupId>com.mobidevelop.robovm</groupId>
             <artifactId>robovm-maven-plugin</artifactId>
-            <version>${robovm.maven.version}</version>
+            <version>${robovm.version}</version>
             <configuration>
-              <deviceName>iPad-Retina</deviceName>
+              <deviceName>iPhone-6-Plus</deviceName>
             </configuration>
             <executions>
               <execution>
                 <phase>test</phase>
                 <goals>
-                  <goal>ipad-sim</goal>
+                  <goal>iphone-sim</goal>
                 </goals>
               </execution>
             </executions>
@@ -48,14 +71,18 @@
         </plugins>
       </build>
     </profile>
+
     <profile>
       <id>robodev</id>
       <build>
         <plugins>
           <plugin>
-            <groupId>org.robovm</groupId>
+            <groupId>com.mobidevelop.robovm</groupId>
             <artifactId>robovm-maven-plugin</artifactId>
-            <version>${robovm.maven.version}</version>
+            <version>${robovm.version}</version>
+            <configuration>
+              <arch>arm64</arch>
+            </configuration>
             <executions>
               <execution>
                 <phase>install</phase>

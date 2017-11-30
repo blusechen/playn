@@ -22,8 +22,9 @@ import pythagoras.f.Point;
 import pythagoras.f.Vector;
 import pythagoras.f.XY;
 
+import react.Closeable;
+import react.Function;
 import react.Signal;
-import react.Slot;
 import react.Value;
 import react.ValueView;
 
@@ -37,7 +38,7 @@ import playn.core.*;
  * However, {@link GroupLayer}, {@link ImageLayer}, {@link ClippedLayer} etc. are provided to
  * make it easy to implement common use cases "out of the box".
  */
-public abstract class Layer implements Disposable {
+public abstract class Layer implements Closeable {
 
   /** Enumerates layer lifecycle states; see {@link #state}. */
   public static enum State { REMOVED, ADDED, DISPOSED }
@@ -116,6 +117,14 @@ public abstract class Layer implements Disposable {
      * point intersects a layer's bounds. See {@link Layer#hitTest}. */
     Layer hitTest (Layer layer, Point p);
   }
+
+  /** Used by {@link #visit}. */
+  public interface Visitor {
+    void visit (Layer layer, int depth);
+  }
+
+  /** Controls rendering of debug rectangles around views. */
+  public static boolean DEBUG_RECTS = false;
 
   /**
    * A reactive value which tracks this layer's lifecycle. It starts out {@link State#REMOVED}, and
@@ -222,16 +231,19 @@ public abstract class Layer implements Disposable {
 
   /** Connects {@code action} to {@link #state} such that it is triggered when this layer is added
     * to a rooted scene graph. */
-  public void onAdded (final Slot<? super Layer> action) { onState(State.ADDED, action); }
+  public void onAdded (final Signal.Listener<? super Layer> action) {
+    onState(State.ADDED, action); }
   /** Connects {@code action} to {@link #state} such that it is triggered when this layer is
     * removed from a rooted scene graph. */
-  public void onRemoved (final Slot<? super Layer> action) { onState(State.REMOVED, action); }
+  public void onRemoved (final Signal.Listener<? super Layer> action) {
+    onState(State.REMOVED, action); }
   /** Connects {@code action} to {@link #state} such that it is triggered when this layer is
     * disposed. */
-  public void onDisposed (final Slot<? super Layer> action) { onState(State.DISPOSED, action); }
+  public void onDisposed (final Signal.Listener<? super Layer> action) {
+    onState(State.DISPOSED, action); }
 
-  private void onState (final State tgtState, final Slot<? super Layer> action) {
-    state.connect(new Slot<State>() {
+  private void onState (final State tgtState, final Signal.Listener<? super Layer> action) {
+    state.connect(new Signal.Listener<State>() {
       public void onEmit (State state) {
         if (state == tgtState) action.onEmit(Layer.this);
       }
@@ -264,8 +276,8 @@ public abstract class Layer implements Disposable {
   public AffineTransform transform() {
     if (isSet(Flag.XFDIRTY)) {
       float sina = FloatMath.sin(rotation), cosa = FloatMath.cos(rotation);
-      float m00 =  cosa * scaleX, m01 = sina * scaleY;
-      float m10 = -sina * scaleX, m11 = cosa * scaleY;
+      float m00 =  cosa * scaleX, m01 = sina * scaleX;
+      float m10 = -sina * scaleY, m11 = cosa * scaleY;
       float tx = transform.tx(), ty = transform.ty();
       transform.setTransform(m00, m01, m10, m11, tx, ty);
       setFlag(Flag.XFDIRTY, false);
@@ -689,6 +701,32 @@ public abstract class Layer implements Disposable {
   }
 
   /**
+   * Visits this layer and its children, in depth first order, with {@code visitor}.
+   */
+  public void visit(Visitor visitor) {
+    visit(visitor, 0);
+  }
+
+  /**
+   * Prints a debug representation of this layer and its children.
+   * @param log the output will go to this log (at the debug level).
+   */
+  public void debugPrint(final Log log) {
+    this.visit(new Visitor() {
+      public void visit(Layer layer, int depth) {
+        String prefix = repeat('.', depth);
+        log.debug(prefix + layer.toString());
+      }
+    });
+  }
+
+  private static String repeat(char c, int count) {
+    char[] cs = new char[count];
+    for (int ii = 0; ii < count; ii++) cs[ii] = c;
+    return new String(cs);
+  }
+
+  /**
    * Renders this layer to {@code surf}, including its children.
    */
   public final void paint (Surface surf) {
@@ -699,6 +737,9 @@ public abstract class Layer implements Disposable {
     surf.concatenate(transform(), originX(), originY());
     try {
       paintImpl(surf);
+      if (DEBUG_RECTS) {
+        drawDebugRect(surf);
+      }
     } finally {
       surf.popBatch(obatch);
       surf.setTint(otint);
@@ -713,40 +754,26 @@ public abstract class Layer implements Disposable {
    */
   protected abstract void paintImpl (Surface surf);
 
+  protected void visit(Visitor visitor, int depth) {
+    visitor.visit(this, depth);
+  }
+
   protected void setState (State state) {
     ((Value<State>)this.state).update(state);
   }
 
-  @Override public String toString () {
-    StringBuilder bldr = new StringBuilder(name());
-    bldr.append(" @ ").append(hashCode());
-    bldr.append(" [tx=").append(transform());
-    if (hitTester != null) bldr.append(", hitTester=").append(hitTester);
-    return bldr.append("]").toString();
+  protected void drawDebugRect(Surface surf) {
+    float x = 0, y = 0, w = this.width(), h = this.height();
+    if (w > 0 && h > 0) {
+      surf.setFillColor(paintNestLevel >= DEBUG_COLORS.length ?
+                        0xFF000000 : DEBUG_COLORS[paintNestLevel]);
+      int thick = 2;
+      surf.drawLine(x,   y,   x+w, y,   thick);
+      surf.drawLine(x+w, y,   x+w, y+h, thick);
+      surf.drawLine(x+w, y+h, x,   y+h, thick);
+      surf.drawLine(x,   y+h, x,   y,   thick);
+    }
   }
-
-  protected int flags;
-  protected float depth;
-
-  private String name;
-  private GroupLayer parent;
-  private Signal<Object> events; // created lazily
-  private HitTester hitTester;
-  private QuadBatch batch;
-
-  // these values are cached in the layer to make the getters return sane values rather than have
-  // to extract the values from the affine transform matrix (which is expensive, doesn't preserve
-  // sign, and wraps rotation around at pi)
-  private float scaleX = 1, scaleY = 1, rotation = 0;
-  private final AffineTransform transform = new AffineTransform();
-
-  private Origin origin = Origin.FIXED;
-  private float originX, originY;
-  protected int tint = Tint.NOOP_TINT;
-  // we keep a copy of alpha as a float so that we can return the exact alpha passed to setAlpha()
-  // from alpha() to avoid funny business in clients due to the quantization; the actual alpha as
-  // rendered by the shader will be quantized, but the eye won't know the difference
-  protected float alpha = 1;
 
   void onAdd() {
     if (disposed()) throw new IllegalStateException("Illegal to use disposed layer: " + this);
@@ -791,4 +818,54 @@ public abstract class Layer implements Disposable {
 
   /** Whether or not to deactivate this layer when its last event listener is removed. */
   protected boolean deactivateOnNoListeners () { return true; }
+
+  @Override public String toString () {
+    StringBuilder buf = new StringBuilder(name());
+    buf.append(" @ ").append(hashCode()).append(" [");
+    toString(buf);
+    return buf.append("]").toString();
+  }
+
+  protected void toString (StringBuilder buf) {
+    buf.append("tx=").append(transform());
+    if (hitTester != null) buf.append(", hitTester=").append(hitTester);
+  }
+
+  protected int flags;
+  protected float depth;
+
+  private String name;
+  private GroupLayer parent;
+  private Signal<Object> events; // created lazily
+  private HitTester hitTester;
+  private QuadBatch batch;
+
+  // these values are cached in the layer to make the getters return sane values rather than have
+  // to extract the values from the affine transform matrix (which is expensive, doesn't preserve
+  // sign, and wraps rotation around at pi)
+  private float scaleX = 1, scaleY = 1, rotation = 0;
+  private final AffineTransform transform = new AffineTransform();
+
+  private Origin origin = Origin.FIXED;
+  private float originX, originY;
+  protected int tint = Tint.NOOP_TINT;
+  // we keep a copy of alpha as a float so that we can return the exact alpha passed to setAlpha()
+  // from alpha() to avoid funny business in clients due to the quantization; the actual alpha as
+  // rendered by the shader will be quantized, but the eye won't know the difference
+  protected float alpha = 1;
+
+  protected static int paintNestLevel;
+
+  protected final static int[] DEBUG_COLORS = {
+    0xFFFFFFFF, // white (root layer, never visible)
+    0xFFFF0000, // red
+    0xFFFF7F00, // orange
+    0xFFFFFF00, // yellow
+    0xFF00FF00, // green
+    0xFF0000FF, // blue
+    0xFF4B0082, // indigo
+    0xFF8B00FF, // violet
+    0xFFFF00FF, // magenta
+    0xFF00FFFF, // aqua
+  };
 }

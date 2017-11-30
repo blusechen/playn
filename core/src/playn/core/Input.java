@@ -23,6 +23,8 @@ import react.Signal;
  */
 public class Input {
 
+  private Platform plat;
+
   /** Enables or disables mouse interaction.
     * No mouse events will be dispatched whilst this big switch is in the off position. */
   public boolean mouseEnabled = true;
@@ -84,6 +86,7 @@ public class Input {
    * keyboard customized to the particular type of text.
    * @param label a label to display over the text entry interface, may be null.
    * @param initialValue the initial value to display in the text input field, may be null.
+   *
    * @return a future which provides the text when it becomes available. If the user cancels the
    * text entry process, null is supplied. Otherwise the entered text is supplied.
    */
@@ -91,21 +94,62 @@ public class Input {
     return RFuture.failure(new Exception("getText not supported"));
   }
 
-  protected void emitKeyPress (double time, Key key, boolean down) {
-    keyboardEvents.emit(new Keyboard.KeyEvent(0, time, key, down));
+  /**
+   * Displays a system dialog with the specified title and text, an OK button and optionally a
+   * Cancel button.
+   *
+   * @param title the title for the dialog window. Note: some platforms (mainly mobile) do not
+   * display the title, so be sure your dialog makes sense if only {@code text} is showing.
+   * @param text the text of the dialog. The text will be wrapped by the underlying platform, but
+   * PlayN will do its utmost to ensure that newlines are honored by the platform in question so
+   * that hard line breaks and blank lines are reproduced correctly.
+   * @param ok the text of the button which will deliver a {@code true} result and be placed in
+   * "OK" position for the platform. Note: the HTML platform does not support customizing this
+   * label, so on that platform the label will be "OK". Yay for HTML5.
+   * @param cancel the text of the button that will deliver a {@code false} result and be placed in
+   * "Cancel" position. If {@code null} is supplied, the dialog will only have an OK button. Note:
+   * the HTML platform does not support customizing this label, so on that platform a non-null
+   * cancel string will result in the button reading "Cancel". Yay for HTML5.
+   *
+   * @return a future which delivers {@code true} or {@code false} when the user clicks the OK or
+   * cancel buttons respectively. If some unexpected error occurs displaying the dialog (unlikley),
+   * it will be reported by failing the future.
+   */
+  public RFuture<Boolean> sysDialog (String title, String text, String ok, String cancel) {
+    return RFuture.failure(new Exception("sysDialog not supported"));
+  }
+
+  protected Input (Platform plat) {
+    this.plat = plat;
+  }
+
+  protected int modifierFlags (boolean altP, boolean ctrlP, boolean metaP, boolean shiftP) {
+    return Event.Input.modifierFlags(altP, ctrlP, metaP, shiftP);
+  }
+
+  protected void emitKeyPress (double time, Key key, boolean down, int flags) {
+    Keyboard.KeyEvent event = new Keyboard.KeyEvent(0, time, key, down);
+    event.setFlag(flags);
+    plat.dispatchEvent(keyboardEvents, event);
   }
   protected void emitKeyTyped (double time, char keyChar) {
-    keyboardEvents.emit(new Keyboard.TypedEvent(0, time, keyChar));
+    plat.dispatchEvent(keyboardEvents, new Keyboard.TypedEvent(0, time, keyChar));
   }
 
   protected void emitMouseButton (double time, float x, float y, Mouse.ButtonEvent.Id btn,
-                                  boolean down) {
-    mouseEvents.emit(new Mouse.ButtonEvent(0, time, x, y, btn, down));
+                                  boolean down, int flags) {
+    Mouse.ButtonEvent event = new Mouse.ButtonEvent(0, time, x, y, btn, down);
+    event.setFlag(flags);
+    plat.dispatchEvent(mouseEvents, event);
   }
-  protected void emitMouseMotion (double time, float x, float y, float dx, float dy) {
-    mouseEvents.emit(new Mouse.MotionEvent(0, time, x, y, dx, dy));
+  protected void emitMouseMotion (double time, float x, float y, float dx, float dy, int flags) {
+    Mouse.MotionEvent event = new Mouse.MotionEvent(0, time, x, y, dx, dy);
+    event.setFlag(flags);
+    plat.dispatchEvent(mouseEvents, event);
   }
-  protected void emitMouseWheel (double time, float x, float y, int delta) {
-    mouseEvents.emit(new Mouse.WheelEvent(0, time, x, y, delta));
+  protected void emitMouseWheel (double time, float x, float y, int delta, int flags) {
+    Mouse.WheelEvent event = new Mouse.WheelEvent(0, time, x, y, delta);
+    event.setFlag(flags);
+    plat.dispatchEvent(mouseEvents, event);
   }
 }

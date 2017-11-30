@@ -17,7 +17,6 @@ package playn.android;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.util.Log;
 
 import playn.core.*;
@@ -47,15 +46,15 @@ public class AndroidPlatform extends Platform {
     this.activity = activity;
 
     log = new AndroidLog(activity.logIdent());
-    exec = new AndroidExec(log, frame, activity) {
+    exec = new AndroidExec(this, activity) {
       @Override protected boolean isPaused () { return state == State.PAUSED; }
     };
     audio = new AndroidAudio(this);
-    graphics = new AndroidGraphics(this, activity.preferredBitmapConfig());
+    graphics = new AndroidGraphics(this, activity.preferredBitmapConfig(), activity.scaleFactor());
     assets = new AndroidAssets(this);
     json = new JsonImpl();
     input = new AndroidInput(this);
-    net = new AndroidNet(exec);
+    net = new AndroidNet(this);
     storage = new AndroidStorage(this);
   }
 
@@ -85,15 +84,15 @@ public class AndroidPlatform extends Platform {
   // note: these are called by GameActivity
   void onPause() {
     state = State.PAUSED;
-    lifecycle.emit(Lifecycle.PAUSE);
+    dispatchEvent(lifecycle, Lifecycle.PAUSE);
   }
   void onResume() {
     state = State.RUNNING;
-    lifecycle.emit(Lifecycle.RESUME);
+    dispatchEvent(lifecycle, Lifecycle.RESUME);
   }
   void onExit() {
     state = State.EXITED;
-    lifecycle.emit(Lifecycle.EXIT);
+    dispatchEvent(lifecycle, Lifecycle.EXIT);
   }
 
   void processFrame() { emitFrame(); }

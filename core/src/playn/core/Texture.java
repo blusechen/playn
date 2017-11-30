@@ -16,6 +16,7 @@ package playn.core;
 import pythagoras.f.AffineTransform;
 import pythagoras.f.IRectangle;
 
+import react.Closeable;
 import react.Slot;
 import react.UnitSlot;
 
@@ -27,7 +28,7 @@ import static playn.core.GL20.*;
  * A handle to an OpenGL texture. A texture is also a {@link Tile} which contains the entire
  * texture, which allows rendering methods to operate uniformly on tiles.
  */
-public class Texture extends Tile implements Disposable {
+public class Texture extends Tile implements Closeable {
 
   /** Used to configure texture at creation time. */
   public final static class Config {
@@ -195,7 +196,7 @@ public class Texture extends Tile implements Disposable {
       @Override public void addToBatch (QuadBatch batch, int tint, AffineTransform tx,
                                         float dx, float dy, float dw, float dh,
                                         float sx, float sy, float sw, float sh) {
-        batch.addQuad(texture(), tint, tx, dx, dy, dw, dh, tileX+sx, tileY+sx, sw, sh);
+        batch.addQuad(texture(), tint, tx, dx, dy, dw, dh, tileX+sx, tileY+sy, sw, sh);
       }
     };
   }
@@ -239,7 +240,13 @@ public class Texture extends Tile implements Disposable {
   @Override public void close () {
     if (!disposed) {
       disposed = true;
-      gfx.gl.glDeleteTexture(id);
+      if (gfx.exec().isMainThread()) {
+        gfx.gl.glDeleteTexture(id);
+      } else {
+        gfx.exec().invokeLater(new Runnable() {
+          public void run () { gfx.gl.glDeleteTexture(id); }
+        });
+      }
     }
   }
 
@@ -249,7 +256,6 @@ public class Texture extends Tile implements Disposable {
   }
 
   protected void finalize () {
-    // if we're not yet disposed, queue ourselves up to be disposed on the next frame tick
-    if (!disposed) gfx.queueForDispose(this);
+    this.close();
   }
 }

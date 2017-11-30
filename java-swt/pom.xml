@@ -4,7 +4,7 @@
   <parent>
     <groupId>io.playn</groupId>
     <artifactId>playn-project</artifactId>
-    <version>2.0-SNAPSHOT</version>
+    <version>2.1-SNAPSHOT</version>
   </parent>
 
   <artifactId>playn-java-swt</artifactId>
@@ -19,7 +19,7 @@
   <repositories>
     <repository>
       <id>swt-repo</id>
-      <url>https://swt-repo.googlecode.com/svn/repo/</url>
+      <url>http://maven-eclipse.github.io/maven</url>
     </repository>
   </repositories>
 
@@ -28,6 +28,16 @@
       <groupId>io.playn</groupId>
       <artifactId>playn-java-lwjgl</artifactId>
       <version>${project.version}</version>
+    </dependency>
+
+    <!-- this is just needed to compile the special mac hack class; NOTE: it has to be before the
+         real dependency below so that it gets used during the build even though the appropriate
+         platform dependency will be used at runtime; don't try this at home kids! -->
+    <dependency>
+      <groupId>org.eclipse.swt</groupId>
+      <artifactId>org.eclipse.swt.cocoa.macosx.x86_64</artifactId>
+      <version>${swt.version}</version>
+      <scope>provided</scope>
     </dependency>
 
     <dependency>

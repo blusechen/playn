@@ -15,10 +15,12 @@
  */
 package playn.core;
 
+import react.Closeable;
+
 /**
  * A 2D drawing canvas. Rendering is performed by the CPU into a bitmap.
  */
-public abstract class Canvas implements Disposable {
+public abstract class Canvas implements Closeable {
 
   /**
    * Values that may be used with
@@ -178,6 +180,16 @@ public abstract class Canvas implements Disposable {
    * Draws a single point at the specified location.
    */
   public abstract Canvas drawPoint (float x, float y);
+
+  /**
+   * Draws an arc of a circle centered at cx, cy, with radius r.
+   * <p>
+   * The start and arc angles are specified in radians. Angles are interpreted
+   * such that 0 radians is at the 3 o'clock position. Positive values indicate
+   * a counter-clockwise rotation while negative values indicate a clockwise
+   * rotation.
+   */
+  public abstract Canvas drawArc (float cx, float cy, float r, float startAngle, float arcAngle);
 
   /**
    * Draws text at the specified location. The text will be drawn in the current fill color.

@@ -18,17 +18,16 @@ import java.util.concurrent.Executors;
 
 import org.robovm.apple.coregraphics.CGRect;
 import org.robovm.apple.foundation.NSObject;
+import org.robovm.apple.foundation.NSThread;
 import org.robovm.apple.foundation.NSTimer;
 import org.robovm.apple.foundation.NSURL;
 import org.robovm.apple.glkit.GLKViewDrawableColorFormat;
 import org.robovm.apple.opengles.EAGLContext;
 import org.robovm.apple.uikit.UIApplication;
 import org.robovm.apple.uikit.UIDevice;
-import org.robovm.apple.uikit.UIInterfaceOrientation;
 import org.robovm.apple.uikit.UIInterfaceOrientationMask;
 import org.robovm.apple.uikit.UIWindow;
-import org.robovm.objc.Selector;
-import org.robovm.objc.annotation.BindSelector;
+import org.robovm.objc.block.VoidBlock1;
 import org.robovm.rt.bro.annotation.Callback;
 
 import playn.core.*;
@@ -120,7 +119,8 @@ public class RoboPlatform extends Platform {
   // create log early because other services use it in their ctor
   private final RoboLog log = new RoboLog();
   private final Json json = new JsonImpl();
-  private final Exec exec = new Exec.Default(log, frame) {
+  private final Exec exec = new Exec.Default(this) {
+    @Override public boolean isMainThread () { return NSThread.getCurrentThread().isMainThread(); }
     @Override public boolean isAsyncSupported () { return true; }
     @Override public void invokeAsync (Runnable action) { pool.execute(action); }
   };
@@ -135,9 +135,9 @@ public class RoboPlatform extends Platform {
   protected RoboPlatform(Config config, CGRect initBounds) {
     this.config = config;
     assets = new RoboAssets(this);
-    graphics = new RoboGraphics(this, initBounds);
+    graphics = new RoboGraphics(this, config, initBounds);
     input = new RoboInput(this);
-    net = new RoboNet(exec);
+    net = new RoboNet(this);
     storage = new RoboStorage(this);
   }
 
@@ -173,7 +173,7 @@ public class RoboPlatform extends Platform {
     if (!paused) return;
     paused = false;
     exec.invokeLater(new Runnable() {
-      public void run() { lifecycle.emit(Lifecycle.RESUME); }
+      public void run() { dispatchEvent(lifecycle, Lifecycle.RESUME); }
     });
   }
 
@@ -183,46 +183,26 @@ public class RoboPlatform extends Platform {
     // we call this directly rather than via invokeLater() because the PlayN thread is already
     // stopped at this point so a) there's no point in worrying about racing with that thread,
     // and b) onPause would never get called, since the PlayN thread is not processing events
-    lifecycle.emit(Lifecycle.PAUSE);
+    dispatchEvent(lifecycle, Lifecycle.PAUSE);
   }
 
   void willTerminate () {
-    // shutdown the GL and AL systems
-    ResourceCleaner.terminate(this);
+    // shutdown the GL and AL systems after our configured delay
+    new NSTimer(config.timeForTermination, new VoidBlock1<NSTimer>() {
+      public void invoke (NSTimer timer) {
+        // shutdown the GL view completely
+        EAGLContext.setCurrentContext(null);
+        // stop and release the AL resources (if audio was ever initialized)
+        if (audio != null) audio.terminate();
+      }
+    }, null, false);
     // let the app know that we're terminating
-    lifecycle.emit(Lifecycle.EXIT);
+    dispatchEvent(lifecycle, Lifecycle.EXIT);
   }
 
   private int getOSVersion () {
     String systemVersion = UIDevice.getCurrentDevice().getSystemVersion();
     int version = Integer.parseInt(systemVersion.split("\\.")[0]);
     return version;
-  }
-
-  private static class ResourceCleaner extends NSObject {
-    private final static Selector SEL = Selector.register("cleanRelatedResources:");
-    private RoboPlatform platform;
-
-    private ResourceCleaner(RoboPlatform platform) {
-      this.platform = platform;
-    }
-
-    // wait for the desired interval and then terminate the GL and AL systems
-    public static void terminate(RoboPlatform platform) {
-      NSTimer.createScheduled(platform.config.timeForTermination, new ResourceCleaner(platform),
-                              ResourceCleaner.SEL, null, false);
-    }
-
-    @Callback @BindSelector("cleanRelatedResources:")
-    private static void cleanRelatedResources(ResourceCleaner self, Selector sel) {
-      if (self.platform != null) {
-        // shutdown the GL view completely
-        EAGLContext.setCurrentContext(null);
-        // stop and release the AL resources (if audio was ever initialized)
-        if (self.platform.audio != null) self.platform.audio.terminate();
-        // null out our platform reference
-        self.platform = null;
-      }
-    }
   }
 }

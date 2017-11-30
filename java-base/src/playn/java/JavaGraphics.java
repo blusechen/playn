@@ -21,50 +21,57 @@ import java.awt.font.FontRenderContext;
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 import playn.core.*;
-import pythagoras.f.Dimension;
-import pythagoras.f.IDimension;
 
 public abstract class JavaGraphics extends Graphics {
 
-  private ByteBuffer imgBuf = createImageBuffer(1024);
-  private Map<String,java.awt.Font> fonts = new HashMap<String,java.awt.Font>();
-
-  protected final JavaPlatform plat;
-
+  private final Map<String,java.awt.Font> fonts = new HashMap<String,java.awt.Font>();
+  private ByteBuffer imgBuf;
   // antialiased font context and aliased font context
-  final FontRenderContext aaFontContext, aFontContext;
+  private FontRenderContext aaFontContext, aFontContext;
 
-  protected JavaGraphics(JavaPlatform plat, GL20 gl20, Scale scale) {
+  protected JavaGraphics(Platform plat, GL20 gl20, Scale scale) {
     super(plat, gl20, scale);
-    this.plat = plat;
+  }
 
-    // set up the dummy font contexts
-    Graphics2D aaGfx = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
-    aaGfx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    aaFontContext = aaGfx.getFontRenderContext();
-    Graphics2D aGfx = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
-    aGfx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
-    aFontContext = aGfx.getFontRenderContext();
+  /** Sets the title of the window. */
+  abstract void setTitle (String title);
+
+  /** Uploads the image data in {@code img} into {@code tex}. */
+  abstract void upload (BufferedImage img, Texture tex);
+
+  // these are initialized lazily to avoid doing any AWT stuff during startup
+  FontRenderContext aaFontContext() {
+    if (aaFontContext == null) {
+      // set up the dummy font contexts
+      Graphics2D aaGfx = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
+      aaGfx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      aaFontContext = aaGfx.getFontRenderContext();
+    }
+    return aaFontContext;
+  }
+
+  FontRenderContext aFontContext() {
+    if (aFontContext == null) {
+      Graphics2D aGfx = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
+      aGfx.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+      aFontContext = aGfx.getFontRenderContext();
+    }
+    return aFontContext;
   }
 
   /**
    * Registers a font with the graphics system.
    *
    * @param name the name under which to register the font.
-   * @param path the path to the font resource (relative to the asset manager's path prefix).
-   * Currently only TrueType ({@code .ttf}) fonts are supported.
+   * @param font the Java font, which can be loaded from a path via {@link JavaAssets#getFont}.
    */
-  public void registerFont (String name, String path) {
-    try {
-      fonts.put(name, plat.assets().requireResource(path).createFont());
-    } catch (Exception e) {
-      plat.reportError("Failed to load font [name=" + name + ", path=" + path + "]", e);
-    }
+  public void registerFont (String name, java.awt.Font font) {
+    if (font == null) throw new NullPointerException();
+    fonts.put(name, font);
   }
 
   /**
@@ -85,16 +92,6 @@ public abstract class JavaGraphics extends Graphics {
     BufferedImage bitmap = new BufferedImage(
       pixelWidth, pixelHeight, BufferedImage.TYPE_INT_ARGB_PRE);
     return new JavaCanvas(this, new JavaImage(this, scale, bitmap, "<canvas>"));
-  }
-
-  /** Initializes things after the rest of the platform is created. */
-  protected abstract void init ();
-
-  /** Uploads the image data in {@code img} into {@code tex}. */
-  protected abstract void upload (BufferedImage img, Texture tex);
-
-  protected void updateViewport (Scale scale, float displayWidth, float displayHeight) {
-    viewportChanged(scale, scale.scaledCeil(displayWidth), scale.scaledCeil(displayHeight));
   }
 
   java.awt.Font resolveFont(Font font) {
@@ -130,6 +127,7 @@ public abstract class JavaGraphics extends Graphics {
   }
 
   ByteBuffer checkGetImageBuffer (int byteSize) {
+    if (imgBuf == null) imgBuf = createImageBuffer(Math.max(1024, byteSize));
     if (imgBuf.capacity() >= byteSize) imgBuf.clear(); // reuse it!
     else imgBuf = createImageBuffer(byteSize);
     return imgBuf;

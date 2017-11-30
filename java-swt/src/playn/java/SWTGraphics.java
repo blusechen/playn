@@ -15,30 +15,48 @@
  */
 package playn.java;
 
-import org.eclipse.swt.*;
-import org.eclipse.swt.graphics.*;
-import org.eclipse.swt.widgets.*;
-
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.opengl.GLCanvas;
 import org.eclipse.swt.opengl.GLData;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Event;
+import org.eclipse.swt.widgets.Listener;
 
-import org.lwjgl.opengl.GLContext;
-import org.lwjgl.LWJGLException;
+import org.lwjgl.opengl.GL;
+
+import playn.core.Scale;
+import pythagoras.f.Dimension;
+import pythagoras.f.IDimension;
 
 public class SWTGraphics extends LWJGLGraphics {
+
+  public static class Hack {
+    public Scale hackScale () { return Scale.ONE; }
+    public void hackCanvas (GLCanvas canvas) {}
+    public void convertToBacking (GLCanvas canvas, Rectangle bounds) {}
+  }
 
   private final SWTPlatform plat;
   GLCanvas canvas; // initialized in createGLContext
 
-  public SWTGraphics (SWTPlatform plat, final Composite comp) {
-    super(plat);
-    this.plat = plat;
+  public SWTGraphics (SWTPlatform splat, final Composite comp) {
+    super(splat);
+    this.plat = splat;
+
+    boolean isMac = "Mac OS X".equals(System.getProperty("os.name"));
+    final Hack hack = isMac ? new SWTMacHack() : new Hack();
+
+    // special scale fiddling on Mac
+    scaleChanged(hack.hackScale());
 
     // create our GLCanvas
-    GLData data = new GLData ();
+    GLData data = new GLData();
     data.doubleBuffer = true;
-    canvas = new GLCanvas(comp, SWT.NONE, data);
-    makeCurrent();
+    canvas = new GLCanvas(comp, SWT.NO_BACKGROUND | SWT.NO_REDRAW_RESIZE, data);
+    hack.hackCanvas(canvas);
+    canvas.setCurrent();
+    GL.createCapabilities();
 
     comp.addListener(SWT.Resize, new Listener() {
       public void handleEvent(Event event) {
@@ -47,38 +65,31 @@ public class SWTGraphics extends LWJGLGraphics {
         Rectangle bounds = comp.getBounds();
         comp.setBounds(bounds);
         canvas.setBounds(bounds);
-        makeCurrent();
-        // SWTGraphics.this.plat.log().info("Resized " + bounds.width + "x" + bounds.height);
-        viewportChanged(scale, bounds.width, bounds.height);
+        canvas.setCurrent();
+        hack.convertToBacking(canvas, bounds);
+        viewportChanged(bounds.width, bounds.height);
       }
     });
 
-    // plat.log().info("Setting size " + config.width + "x" + config.height);
+    plat.log().info("Setting size " + plat.config.width + "x" + plat.config.height);
     setSize(plat.config.width, plat.config.height, plat.config.fullscreen);
   }
 
   public GLCanvas canvas () { return canvas; }
 
+  @Override public IDimension screenSize () {
+    Rectangle db = plat.display().getBounds();
+    return new Dimension(db.width, db.height);
+  }
+
   @Override public void setSize (int width, int height, boolean fullscreen) {
-    int rawWidth = scale.scaledCeil(width), rawHeight = scale.scaledCeil(height);
-    plat.comp.setSize(rawWidth, rawHeight);
-    plat.shell.setFullScreen(fullscreen);
-    plat.shell.pack();
-    // viewSizeChanged(rawWidth, rawHeight);
+    plat.composite().setSize(width, height);
+    plat.shell().setFullScreen(fullscreen);
+    plat.shell().pack();
   }
 
-  @Override protected void init () {} // noop!
-  @Override protected void setDisplayMode (int width, int height, boolean fullscreen) {} // noop!
+  @Override void setTitle (String title) { plat.shell().setText(title); }
 
-  private void makeCurrent () {
-    canvas.setCurrent();
-    try {
-      GLContext.useContext(canvas);
-    } catch (LWJGLException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  void onBeforeFrame () { makeCurrent(); }
+  void onBeforeFrame () { canvas.setCurrent(); }
   void onAfterFrame () { canvas.swapBuffers(); }
 }

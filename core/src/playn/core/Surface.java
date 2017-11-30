@@ -20,9 +20,13 @@ import java.util.List;
 
 import pythagoras.f.AffineTransform;
 import pythagoras.f.FloatMath;
-import pythagoras.f.MathUtil;
+import pythagoras.f.Point;
 import pythagoras.f.Transforms;
+import pythagoras.f.Vector;
+import pythagoras.f.XY;
 import pythagoras.i.Rectangle;
+
+import react.Closeable;
 
 /**
  * A surface provides a simple drawing API to a GPU accelerated render target. This can be either
@@ -32,7 +36,7 @@ import pythagoras.i.Rectangle;
  * {@link Surface#begin} and {@link Surface#end}. This ensures that the batch into which
  * the surface is rendering is properly flushed to the GPU at the right times.
  */
-public class Surface implements Disposable {
+public class Surface implements Closeable {
 
   private final List<AffineTransform> transformStack = new ArrayList<>();
   private final Texture colorTex;
@@ -45,6 +49,11 @@ public class Surface implements Disposable {
   private int fillColor;
   private int tint = Tint.NOOP_TINT;
   private Texture patternTex;
+  private AffineTransform lastTrans;
+
+  private boolean checkIntersection;
+  private Point intersectionTestPoint = new Point();
+  private Vector intersectionTestSize = new Vector();
 
   /**
    * Creates a surface which will render to {@code target} using {@code defaultBatch} as its
@@ -53,9 +62,18 @@ public class Surface implements Disposable {
   public Surface (Graphics gfx, RenderTarget target, QuadBatch defaultBatch) {
     this.target = target;
     this.batch = defaultBatch;
-    transformStack.add(new AffineTransform());
+    transformStack.add(lastTrans = new AffineTransform());
     colorTex = gfx.colorTex();
     scale(target.xscale(), target.yscale());
+  }
+
+  /**
+   * Configures this surface to check the bounds of drawn {@link Tile}s to ensure that they
+   * intersect our visible bounds before adding them to our GPU batch. If you draw a lot of totally
+   * out of bounds images, this may increase your draw performance.
+   */
+  public void setCheckIntersection (boolean checkIntersection) {
+    this.checkIntersection = checkIntersection;
   }
 
   /** Starts a series of drawing commands to this surface. */
@@ -92,19 +110,21 @@ public class Surface implements Disposable {
 
   /** Returns the current transform. */
   public AffineTransform tx () {
-    return transformStack.get(transformStack.size()-1);
+    return lastTrans;
   }
 
   /** Saves the current transform. */
   public Surface saveTx () {
-    transformStack.add(tx().copy());
+    transformStack.add(lastTrans = lastTrans.copy());
     return this;
   }
 
   /** Restores the transform previously stored by {@link #saveTx}. */
   public Surface restoreTx () {
-    assert transformStack.size() > 1 : "Unbalanced save/restore";
-    transformStack.remove(transformStack.size() - 1);
+    int tsSize = transformStack.size();
+    assert tsSize > 1 : "Unbalanced save/restore";
+    transformStack.remove(--tsSize);
+    lastTrans = transformStack.isEmpty() ? null : transformStack.get(tsSize-1);
     return this;
   }
 
@@ -116,7 +136,7 @@ public class Surface implements Disposable {
     * to skip their drawing if this returns false, but they must still call {@link #endClipped}. */
   public boolean startClipped (int x, int y, int width, int height) {
     batch.flush(); // flush any pending unclipped calls
-    Rectangle r = pushScissorState(x, target.height()-y-height, width, height);
+    Rectangle r = pushScissorState(x, target.flip() ? target.height()-y-height : y, width, height);
     batch.gl.glScissor(r.x, r.y, r.width, r.height);
     if (scissorDepth == 1) batch.gl.glEnable(GL20.GL_SCISSOR_TEST);
     batch.gl.checkError("startClipped");
@@ -180,7 +200,7 @@ public class Surface implements Disposable {
 
   /** Returns the currently configured alpha. */
   public float alpha () {
-    return ((tint >> 24) & 0xFF) / 255f;
+    return Tint.getAlpha(tint);
   }
 
   /** Set the alpha component of this surface's current tint. Note that this value will be
@@ -189,8 +209,7 @@ public class Surface implements Disposable {
     * @param alpha value in range [0,1] where 0 is transparent and 1 is opaque.
     */
   public Surface setAlpha (float alpha) {
-    int ialpha = (int)(0xFF * MathUtil.clamp(alpha, 0, 1));
-    this.tint = (ialpha << 24) | (tint & 0xFFFFFF);
+    tint = Tint.setAlpha(tint, alpha);
     return this;
   }
 
@@ -235,6 +254,22 @@ public class Surface implements Disposable {
     return this;
   }
 
+  /** Returns whether the given rectangle intersects the render target area of this surface. */
+  public boolean intersects (float x, float y, float w, float h) {
+    tx().transform(intersectionTestPoint.set(x, y), intersectionTestPoint);
+    tx().transform(intersectionTestSize.set(w, h), intersectionTestSize);
+    float ix = intersectionTestPoint.x, iy = intersectionTestPoint.y;
+    float iw = intersectionTestSize.x, ih = intersectionTestSize.y;
+
+    if (scissorDepth > 0) {
+      Rectangle scissor = scissors.get(scissorDepth - 1);
+      return scissor.intersects((int)ix, (int)iy, (int)iw, (int)ih);
+    }
+
+    float tw = target.width(), th = target.height();
+    return (ix + iw > 0) && (ix < tw) && (iy + ih > 0) && (iy < th);
+  }
+
   /** Clears the entire surface to transparent blackness. */
   public Surface clear () { return clear(0, 0, 0, 0); }
 
@@ -255,7 +290,21 @@ public class Surface implements Disposable {
    * Draws a tile at the specified location {@code (x, y)} and size {@code (w x h)}.
    */
   public Surface draw (Tile tile, float x, float y, float w, float h) {
-    tile.addToBatch(batch, tint, tx(), x, y, w, h);
+    if (!checkIntersection || intersects(x, y, w, h)) {
+      tile.addToBatch(batch, tint, tx(), x, y, w, h);
+    }
+    return this;
+  }
+
+  /**
+   * Draws a tile at the specified location {@code (x, y)} and size {@code (w x h)}, with tint
+   * {@code tint}. <em>Note:</em> this will override any tint and alpha currently configured on
+   * this surface.
+   */
+  public Surface draw (Tile tile, int tint, float x, float y, float w, float h) {
+    if (!checkIntersection || intersects(x, y, w, h)) {
+      tile.addToBatch(batch, tint, tx(), x, y, w, h);
+    }
     return this;
   }
 
@@ -265,7 +314,22 @@ public class Surface implements Disposable {
    */
   public Surface draw (Tile tile, float dx, float dy, float dw, float dh,
                        float sx, float sy, float sw, float sh) {
-    tile.addToBatch(batch, tint, tx(), dx, dy, dw, dh, sx, sy, sw, sh);
+    if (!checkIntersection || intersects(dx, dy, dw, dh)) {
+      tile.addToBatch(batch, tint, tx(), dx, dy, dw, dh, sx, sy, sw, sh);
+    }
+    return this;
+  }
+
+  /**
+   * Draws a scaled subset of an image (defined by {@code (sx, sy)} and {@code (w x h)}) at the
+   * specified location {@code (dx, dy)} and size {@code (dw x dh)}, with tint {@code tint}.
+   * <em>Note:</em> this will override any tint and alpha currently configured on this surface.
+   */
+  public Surface draw (Tile tile, int tint, float dx, float dy, float dw, float dh,
+                       float sx, float sy, float sw, float sh) {
+    if (!checkIntersection || intersects(dx, dy, dw, dh)) {
+      tile.addToBatch(batch, tint, tx(), dx, dy, dw, dh, sx, sy, sw, sh);
+    }
     return this;
   }
 
@@ -274,6 +338,13 @@ public class Surface implements Disposable {
    */
   public Surface drawCentered (Tile tile, float x, float y) {
     return draw(tile, x - tile.width()/2, y - tile.height()/2);
+  }
+
+  /**
+   * Fills a line between the specified coordinates, of the specified display unit width.
+   */
+  public Surface drawLine (XY a, XY b, float width) {
+    return drawLine(a.x(), a.y(), b.x(), b.y(), width);
   }
 
   /**

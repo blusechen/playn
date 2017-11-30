@@ -47,16 +47,15 @@ public class HtmlImage extends ImageImpl {
     final RPromise<Image> pstate = ((RPromise<Image>)state);
     if (isComplete(img)) pstate.succeed(this);
     else {
+      final Scale fscale = scale;
       HtmlInput.addEventListener(img, "load", new EventHandler() {
         @Override public void handleEvent (NativeEvent evt) {
-          pixelWidth = img.getWidth();
-          pixelHeight = img.getHeight();
-          pstate.succeed(HtmlImage.this);
+          succeed(new ImageImpl.Data(fscale, img, img.getWidth(), img.getHeight()));
         }
       }, false);
       HtmlInput.addEventListener(img, "error", new EventHandler() {
         @Override public void handleEvent(NativeEvent evt) {
-          pstate.fail(new RuntimeException("Error loading image " + img.getSrc()));
+          fail(new RuntimeException("Error loading image " + img.getSrc()));
         }
       }, false);
     }

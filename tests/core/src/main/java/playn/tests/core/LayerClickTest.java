@@ -42,10 +42,22 @@ class LayerClickTest extends Test {
     game.rootLayer.addAt(l2.setScale(1.5f).setRotation(FloatMath.PI/4), 150, 50);
     l2.events().connect(new Mover(l2).listener(game.input));
 
-    Image mdb = game.assets.getRemoteImage("https://graph.facebook.com/samskivert/picture");
-    final ImageLayer l3 = new ImageLayer(mdb);
+    Image mdb = game.assets.getRemoteImage("https://www.samskivert.com/images/headshot.jpg");
+    ImageLayer l3 = new ImageLayer(mdb);
     game.rootLayer.addAt(l3.setRotation(-FloatMath.PI/4), 50, 150);
     l3.events().connect(new Mover(l3).listener(game.input));
+
+    String l4url = "https://www.samskivert.com/images/2012/12/spellwood-app-icon.png";
+    game.net.req(l4url).execute().onSuccess(rsp -> {
+      try {
+        Image icon = rsp.payloadImage(new Scale(2));
+        ImageLayer l4 = new ImageLayer(icon);
+        game.rootLayer.addAt(l4.setRotation(FloatMath.PI/4), 150, 150);
+        l4.events().connect(new Mover(l4).listener(game.input));
+      } catch (Exception e) {
+        game.log.warn("Failed to decode image: " + e);
+      }
+    }).onFailure(t -> game.log.warn("Failed to load image: " + l4url, t));
   }
 
   protected static class Mover {

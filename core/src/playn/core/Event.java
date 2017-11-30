@@ -25,8 +25,6 @@ public abstract class Event {
 
   /** The base for all input events. */
   public static class Input extends Event {
-    // TODO(mdb): a mechanism to determine which modifier keys are pressed, if any
-
     /**
      * The flags set for this event. See {@link #isSet}, {@link #setFlag} and {@link #clearFlag}.
      */
@@ -38,6 +36,15 @@ public abstract class Event {
      * monotonically increasing value.
      */
     public final double time;
+
+    /** Returns true if the {@code alt} key was down when this event was generated. */
+    public boolean isAltDown () { return isSet(F_ALT_DOWN); }
+    /** Returns true if the {@code ctrl} key was down when this event was generated. */
+    public boolean isCtrlDown () { return isSet(F_CTRL_DOWN); }
+    /** Returns true if the {@code shift} key was down when this event was generated. */
+    public boolean isShiftDown () { return isSet(F_SHIFT_DOWN); }
+    /** Returns true if the {@code meta} key was down when this event was generated. */
+    public boolean isMetaDown () { return isSet(F_META_DOWN); }
 
     /** Returns whether the {@code flag} bit is set. */
     public boolean isSet (int flag) {
@@ -64,6 +71,16 @@ public abstract class Event {
       StringBuilder builder = new StringBuilder(name()).append('[');
       addFields(builder);
       return builder.append(']').toString();
+    }
+
+    /** A helper function used by platform input code to compose modifier flags. */
+    public static int modifierFlags (boolean altP, boolean ctrlP, boolean metaP, boolean shiftP) {
+      int flags = 0;
+      if (altP)   flags |= F_ALT_DOWN;
+      if (ctrlP)  flags |= F_CTRL_DOWN;
+      if (metaP)  flags |= F_META_DOWN;
+      if (shiftP) flags |= F_SHIFT_DOWN;
+      return flags;
     }
 
     protected Input (int flags, double time) {
@@ -111,4 +128,9 @@ public abstract class Event {
       builder.append(", x=").append(x).append(", y=").append(y);
     }
   }
+
+  protected static final int F_ALT_DOWN   = 1 << 1;
+  protected static final int F_CTRL_DOWN  = 1 << 2;
+  protected static final int F_SHIFT_DOWN = 1 << 3;
+  protected static final int F_META_DOWN  = 1 << 4;
 }

@@ -21,6 +21,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
 
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -33,9 +34,6 @@ import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
-
-import com.android.vending.expansion.zipfile.APKExpansionSupport;
-import com.android.vending.expansion.zipfile.ZipResourceFile;
 
 import playn.core.*;
 
@@ -57,20 +55,44 @@ public class AndroidAssets extends Assets {
     void adjustOptions(String path, BitmapOptions options);
   }
 
+  /** Configures from where our assets are loaded. By default assets are loaded via the Android
+    * {@link AssetManager}, but this can be used to load assets from an APK expansion file if
+    * desired.
+    */
+  public interface AssetSource {
+    /** Opens an input stream to the asset at {@code assetPath}.
+      * The path will already have the path prefix prepended. */
+    public InputStream openStream (String assetPath) throws IOException;
+
+    /** Obtains a file descriptor for the asset at {@code assetPath}.
+      * The path will already have the path prefix prepended. */
+    public AssetFileDescriptor getFileDescriptor (String assetPath) throws IOException;
+  }
+
   private final AndroidPlatform plat;
   private final AssetManager assetMgr;
   private String pathPrefix = ""; // 'assets/' is always prepended by AssetManager
   private Scale assetScale = null;
-  private ZipResourceFile expansionFile = null;
 
   private BitmapOptionsAdjuster optionsAdjuster = new BitmapOptionsAdjuster() {
     public void adjustOptions(String path, BitmapOptions options) {} // noop!
   };
 
+  private AssetSource assetSource;
+
   public AndroidAssets (AndroidPlatform plat) {
     super(plat.exec());
     this.plat = plat;
     this.assetMgr = plat.activity.getResources().getAssets();
+
+    assetSource = new AssetSource() {
+      public InputStream openStream (String assetPath) throws IOException {
+        return assetMgr.open(assetPath, AssetManager.ACCESS_STREAMING);
+      }
+      public AssetFileDescriptor getFileDescriptor (String assetPath) throws IOException {
+        return assetMgr.openFd(assetPath);
+      }
+    };
   }
 
   /**
@@ -87,38 +109,13 @@ public class AndroidAssets extends Assets {
   }
 
   /**
-   * Configures assets to be loaded from existing expansion files. Android supports two expansion
-   * files, a main and patch file. The versions for each are passed to this method. If you are not
-   * using either of the files, supply {@code 0} for the version. Both files will be searched for
-   * resources.
-   *
-   * <p>Expansion resources do not make an assumption that the resources are in a directory named
-   * 'assets' in contrast to the Android resource manager. Use {@link #setPathPrefix} to configure
-   * the path within the expansion files.</p>
-   *
-   * <p>Expansion files are expected to be existing and zipped, following the
-   * <a href="http://developer.android.com/google/play/expansion-files.html">Android expansion
-   * file guidelines</a>.</p>
-   *
-   * <p>Due to Android limitations, fonts and typefaces can not be loaded from expansion files.
-   * Fonts should be kept within the default Android assets directory so they may be loaded via the
-   * AssetManager.</p>
-   *
-   * @throws IOException if any expansion files are missing.
-   */
-  public void setExpansionFile(int mainVersion, int patchVersion) throws IOException {
-    expansionFile = APKExpansionSupport.getAPKExpansionZipFile(
-      plat.activity, mainVersion, patchVersion);
-    if (expansionFile == null) throw new FileNotFoundException("Missing APK expansion zip files");
-  }
-
-  /**
    * Configures the default scale to use for assets. This allows one to use higher resolution
    * imagery than the device might normally. For example, one can supply scale 2 here, and
    * configure the graphics scale to 1.25 in order to use iOS Retina graphics (640x960) on a WXGA
    * (480x800) device.
    */
   public void setAssetScale(float scaleFactor) {
+    assert scaleFactor > 0;
     this.assetScale = new Scale(scaleFactor);
   }
 
@@ -128,7 +125,26 @@ public class AndroidAssets extends Assets {
    * its non-transparent images) or adjust the dithering settings.
    */
   public void setBitmapOptionsAdjuster(BitmapOptionsAdjuster optionsAdjuster) {
+    assert optionsAdjuster != null;
     this.optionsAdjuster = optionsAdjuster;
+  }
+
+  /**
+   * Configures the place from which our assets are loaded. By default assets are loaded via
+   * {@link AssetManager}, but a custom source can be used to, for example, load assets from an
+   * expansion APK.
+   */
+  public void setAssetSource (AssetSource source) {
+    assert source != null;
+    this.assetSource = source;
+  }
+
+  /**
+   * Loads a typeface from {@code path}. This can then be registered via
+   * {@link AndroidGraphics#registerFont}.
+   */
+  public Typeface getTypeface(String path) {
+    return Typeface.createFromAsset(assetMgr, normalizePath(pathPrefix + path));
   }
 
   @Override public Image getRemoteImage(final String url, int width, int height) {
@@ -139,7 +155,7 @@ public class AndroidAssets extends Assets {
           BitmapOptions options = createOptions(url, false, Scale.ONE);
           Bitmap bmp = downloadBitmap(url, options);
           image.succeed(new ImageImpl.Data(options.scale, bmp, bmp.getWidth(), bmp.getHeight()));
-        } catch (Exception error) {
+        } catch (Throwable error) {
           image.fail(error);
         }
       }
@@ -177,23 +193,16 @@ public class AndroidAssets extends Assets {
   }
 
   @Override
-  public byte[] getBytesSync(String path) throws Exception {
-      InputStream is = openAsset(path);
-      try {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[1024];
-        while (true) {
-          int r = is.read(buf);
-          if (r == -1) {
-            break;
-          }
-          out.write(buf, 0, r);
-        }
-
-        return out.toByteArray();
-      } finally {
-        is.close();
-      }
+  public ByteBuffer getBytesSync(String path) throws Exception {
+    InputStream is = openAsset(path);
+    try {
+      int size = is.available();
+      byte[] data = new byte[size];
+      is.read(data);
+      return ByteBuffer.wrap(data);
+    } finally {
+      is.close();
+    }
   }
 
   @Override protected ImageImpl createImage(boolean async, int rwid, int rhei, String source) {
@@ -219,36 +228,27 @@ public class AndroidAssets extends Assets {
         break; // the image was broken not missing, stop here
       }
     }
-    plat.log().warn("Could not load image: " + pathPrefix + path, error);
+    plat.reportError("Could not load image: " + pathPrefix + path, error);
     throw error != null ? error : new FileNotFoundException(path);
   }
 
-  Typeface getTypeface(String path) {
-    return Typeface.createFromAsset(assetMgr, normalizePath(pathPrefix + path));
-  }
-
-  protected AssetFileDescriptor openAssetFd(String path) throws IOException {
-    String fullPath = normalizePath(pathPrefix + path);
-    return (expansionFile == null) ? assetMgr.openFd(fullPath) :
-      expansionFile.getAssetFileDescriptor(fullPath);
-  }
-
-  protected Scale assetScale () {
-    return (assetScale != null) ? assetScale : plat.graphics().scale();
+  AssetFileDescriptor openAssetFd(String path) throws IOException {
+    return assetSource.getFileDescriptor(normalizePath(pathPrefix + path));
   }
 
   /**
    * Attempts to open the asset with the given name, throwing an {@link IOException} in case of
    * failure.
    */
-  protected InputStream openAsset(String path) throws IOException {
+  InputStream openAsset(String path) throws IOException {
     String fullPath = normalizePath(pathPrefix + path);
-    InputStream is = (expansionFile == null) ?
-      assetMgr.open(fullPath, AssetManager.ACCESS_STREAMING) :
-      expansionFile.getInputStream(fullPath);
-    if (is == null)
-      throw new FileNotFoundException("Missing resource: " + fullPath);
+    InputStream is = assetSource.openStream(fullPath);
+    if (is == null) throw new FileNotFoundException("Missing resource: " + fullPath);
     return is;
+  }
+
+  protected Scale assetScale () {
+    return (assetScale != null) ? assetScale : plat.graphics().scale();
   }
 
   protected BitmapOptions createOptions(String path, boolean purgeable, Scale scale) {

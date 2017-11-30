@@ -36,8 +36,11 @@ public class RoboInput extends Input {
   private final RoboPlatform plat;
 
   public RoboInput(RoboPlatform plat) {
+    super(plat);
     this.plat = plat;
   }
+
+  @Override public boolean hasTouch () { return true; }
 
   @Override public RFuture<String> getText(Keyboard.TextType textType, String label,
                                            String initVal) {
@@ -79,17 +82,37 @@ public class RoboInput extends Input {
     return result;
   }
 
+  @Override public RFuture<Boolean> sysDialog(String title, String text, String ok, String cancel) {
+    final RPromise<Boolean> result = plat.exec().deferredPromise();
+
+    UIAlertView view = new UIAlertView();
+    view.setTitle(title);
+    view.setMessage(text);
+    if (cancel != null) view.addButton(cancel);
+    view.addButton(ok);
+    view.setAlertViewStyle(UIAlertViewStyle.Default);
+
+    view.setDelegate(new UIAlertViewDelegateAdapter() {
+      public void clicked(UIAlertView view, long buttonIndex) {
+        result.succeed(buttonIndex == 1);
+      }
+    });
+    view.show();
+
+    return result;
+  }
+
   void onTouchesBegan(NSSet<UITouch> touches, UIEvent event) {
-    touchEvents.emit(toEvents(touches, event, Touch.Event.Kind.START));
+    plat.dispatchEvent(touchEvents, toEvents(touches, event, Touch.Event.Kind.START));
   }
   void onTouchesMoved(NSSet<UITouch> touches, UIEvent event) {
-    touchEvents.emit(toEvents(touches, event, Touch.Event.Kind.MOVE));
+    plat.dispatchEvent(touchEvents, toEvents(touches, event, Touch.Event.Kind.MOVE));
   }
   void onTouchesEnded(NSSet<UITouch> touches, UIEvent event) {
-    touchEvents.emit(toEvents(touches, event, Touch.Event.Kind.END));
+    plat.dispatchEvent(touchEvents, toEvents(touches, event, Touch.Event.Kind.END));
   }
   void onTouchesCancelled(NSSet<UITouch> touches, UIEvent event) {
-    touchEvents.emit(toEvents(touches, event, Touch.Event.Kind.CANCEL));
+    plat.dispatchEvent(touchEvents, toEvents(touches, event, Touch.Event.Kind.CANCEL));
   }
 
   private Touch.Event[] toEvents (NSSet<UITouch> touches, UIEvent event, Touch.Event.Kind kind) {

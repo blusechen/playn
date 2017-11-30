@@ -16,9 +16,14 @@
 package playn.java;
 
 import org.eclipse.swt.*;
+import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.*;
 
 import react.RFuture;
+import react.RPromise;
 
 import playn.core.Key;
 import playn.core.Keyboard;
@@ -26,72 +31,154 @@ import playn.core.Mouse;
 
 public class SWTInput extends JavaInput {
 
-  private SWTPlatform plat;
+  private final SWTPlatform plat;
 
-  public SWTInput(SWTPlatform plat) {
-    super(plat);
-    this.plat = plat;
-  }
+  public SWTInput(SWTPlatform splat) {
+    super(splat);
+    this.plat = splat;
 
-  @Override void init() {
     // wire up mouse events
-    plat.display.addFilter(SWT.MouseDown, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.MouseDown, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         if (event.widget == plat.graphics().canvas) {
           Mouse.ButtonEvent.Id btn = mapButton(event.button);
-          if (btn != null) emitMouseButton(event.time, event.x, event.y, btn, true);
+          if (btn != null) emitMouseButton(event.time, event.x, event.y, btn, true, mods(event));
         }
       }
     });
-    plat.display.addFilter(SWT.MouseUp, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.MouseUp, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         if (event.widget == plat.graphics().canvas) {
           Mouse.ButtonEvent.Id btn = mapButton(event.button);
-          if (btn != null) emitMouseButton(event.time, event.x, event.y, btn, false);
+          if (btn != null) emitMouseButton(event.time, event.x, event.y, btn, false, mods(event));
         }
       }
     });
-    plat.display.addFilter(SWT.MouseMove, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.MouseMove, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         if (event.widget == plat.graphics().canvas) {
           float dx = event.x - lastX, dy = event.y - lastY;
-          emitMouseMotion(event.time, event.x, event.y, dx, dy);
+          emitMouseMotion(event.time, event.x, event.y, dx, dy, mods(event));
         }
       }
       private float lastX, lastY;
     });
-    plat.display.addFilter(SWT.MouseWheel, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.MouseWheel, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         if (event.widget == plat.graphics().canvas) {
-          emitMouseWheel(event.time, event.x, event.y, -event.count);
+          emitMouseWheel(event.time, event.x, event.y, -event.count, mods(event));
         }
       }
     });
 
     // wire up keyboard events
-    plat.display.addFilter(SWT.KeyDown, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.KeyDown, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         Key key = translateKey(event.keyCode);
-        if (key != null) emitKeyPress(event.time, key, true);
+        if (key != null) emitKeyPress(event.time, key, true, mods(event));
         else System.err.println("KEY? " + event.keyCode + " / " + event.character);
 
         char keyChar = event.character;
         if (Character.isISOControl(keyChar)) emitKeyTyped(event.time, keyChar);
       }
     });
-    plat.display.addFilter(SWT.KeyUp, new org.eclipse.swt.widgets.Listener() {
+    plat.display().addFilter(SWT.KeyUp, new org.eclipse.swt.widgets.Listener() {
       public void handleEvent (Event event) {
         Key key = translateKey(event.keyCode);
-        if (key != null) emitKeyPress(event.time, key, false);
+        if (key != null) emitKeyPress(event.time, key, false, mods(event));
       }
     });
   }
 
-  @Override void update() {} // not needed; don't call super as that does LWJGL stuff
-
   @Override public RFuture<String> getText (Keyboard.TextType textType,
                                             String label, String initVal) {
-    return RFuture.failure(new Exception("TODO"));
+    final RPromise<String> result = RPromise.create();
+
+    final Shell shell = new Shell(plat.shell(), SWT.DIALOG_TRIM | SWT.APPLICATION_MODAL);
+    GridLayout layout = new GridLayout(2, true);
+    layout.marginTop = 10;
+    layout.marginLeft = 10;
+    layout.marginBottom = 10;
+    layout.marginRight = 10;
+    layout.verticalSpacing = 10;
+    shell.setLayout(layout);
+    shell.addListener(SWT.Traverse, new Listener() {
+      public void handleEvent(Event event) {
+        if (event.detail == SWT.TRAVERSE_ESCAPE) {
+          result.succeed(null);
+        }
+      }
+    });
+
+    Label info = new Label(shell, SWT.NULL);
+    GridData idata = new GridData();
+    idata.horizontalSpan = 2;
+    info.setLayoutData(idata);
+    info.setText(label);
+
+    final Text text = new Text(shell, SWT.SINGLE | SWT.BORDER);
+    GridData tdata = new GridData(GridData.FILL_HORIZONTAL);
+    tdata.horizontalSpan = 2;
+    text.setLayoutData(tdata);
+    if (initVal != null) text.setText(initVal);
+
+    final Button ok = new Button(shell, SWT.PUSH);
+    ok.setText("OK");
+    ok.setLayoutData(new GridData(GridData.HORIZONTAL_ALIGN_END));
+    ok.addListener(SWT.Selection, new Listener() {
+      public void handleEvent(Event event) {
+        String r = text.getText();
+        shell.dispose();
+        result.succeed(r);
+      }
+    });
+    shell.setDefaultButton(ok);
+
+    Button cancel = new Button(shell, SWT.PUSH);
+    cancel.setText("Cancel");
+    cancel.addListener(SWT.Selection, new Listener() {
+      public void handleEvent(Event event) {
+        shell.dispose();
+        result.succeed(null);
+      }
+    });
+
+    shell.pack();
+    Rectangle psize = plat.shell().getBounds(), ssize = shell.getBounds();
+    shell.setLocation(new Point(psize.x + (psize.width - ssize.width)/2,
+                                psize.y + (psize.height - ssize.height)/2));
+    shell.open();
+
+    // HACK HACK HACK: SWT drops any pending mouse up event when we open this shell (even if we
+    // defer it via Display.asyncExec) so we have to fake a mouse up here lest all input processing
+    // get totally hosed; sigh
+    emitFakeMouseUp();
+
+    return result;
+  }
+
+  @Override public RFuture<Boolean> sysDialog (String title, String text,
+                                               String ok, String cancel) {
+    int style = (cancel == null) ?
+      SWT.ICON_INFORMATION|SWT.OK : SWT.ICON_QUESTION|SWT.OK|SWT.CANCEL;
+    MessageBox box = new MessageBox(plat.shell(), style);
+    box.setText(title);
+    box.setMessage(text);
+    // HACK HACK HACK: see above hand wringing
+    emitFakeMouseUp();
+    int button = box.open();
+    return RFuture.success(button == SWT.OK);
+  }
+
+  private void emitFakeMouseUp () {
+    mouseEvents.emit(new Mouse.ButtonEvent(0, plat.time(), 0, 0, Mouse.ButtonEvent.Id.LEFT, false));
+  }
+
+  private int mods (org.eclipse.swt.widgets.Event event) {
+    return modifierFlags((event.stateMask & SWT.ALT) == SWT.ALT,
+                         (event.stateMask & SWT.CTRL) == SWT.CTRL,
+                         (event.stateMask & SWT.COMMAND) == SWT.COMMAND,
+                         (event.stateMask & SWT.SHIFT) == SWT.SHIFT);
   }
 
   private Mouse.ButtonEvent.Id mapButton(int swtButton) {

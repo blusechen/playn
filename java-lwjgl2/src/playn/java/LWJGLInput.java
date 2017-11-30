@@ -13,7 +13,6 @@
  */
 package playn.java;
 
-import javax.swing.JFrame;
 import javax.swing.JOptionPane;
 
 import org.lwjgl.LWJGLException;
@@ -30,24 +29,8 @@ import static playn.core.Mouse.*;    // to avoid clash with LWJGL Mouse; double 
 
 public class LWJGLInput extends JavaInput {
 
-  // TODO: set this from somewhere?
-  private JFrame frame;
-
   public LWJGLInput (LWJGLPlatform plat) {
     super(plat);
-  }
-
-  @Override public RFuture<String> getText(TextType textType, String label, String initVal) {
-    Object result = JOptionPane.showInputDialog(
-      frame, label, "", JOptionPane.QUESTION_MESSAGE, null, null, initVal);
-    return RFuture.success((String)result);
-  }
-
-  @Override public boolean hasMouseLock () { return true; }
-  @Override public boolean isMouseLocked() { return Mouse.isGrabbed(); }
-  @Override public void setMouseLocked (boolean locked) { Mouse.setGrabbed(locked); }
-
-  @Override void init() {
     try {
       Keyboard.create();
       Mouse.create();
@@ -56,8 +39,39 @@ public class LWJGLInput extends JavaInput {
     }
   }
 
+  @Override public RFuture<String> getText(TextType textType, String label, String initVal) {
+    Object result = JOptionPane.showInputDialog(
+      null, label, "", JOptionPane.QUESTION_MESSAGE, null, null, initVal);
+    return RFuture.success((String)result);
+  }
+
+  @Override public RFuture<Boolean> sysDialog (String title, String text,
+                                               String ok, String cancel) {
+    int optType = JOptionPane.OK_CANCEL_OPTION;
+    int msgType = cancel == null ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.QUESTION_MESSAGE;
+    Object[] options = (cancel == null) ? new Object[] { ok } : new Object[] { ok, cancel };
+    Object defOption = (cancel == null) ? ok : cancel;
+    int result = JOptionPane.showOptionDialog(
+      null, text, title, optType, msgType, null, options, defOption);
+    return RFuture.success(result == 0);
+  }
+
+  @Override public boolean hasMouseLock () { return true; }
+  @Override public boolean isMouseLocked() { return Mouse.isGrabbed(); }
+  @Override public void setMouseLocked (boolean locked) { Mouse.setGrabbed(locked); }
+
   @Override void update () {
     super.update();
+
+    // determine the current state of the modifier keys (note: the code assumes the current state
+    // of the modifier keys is "correct" for all events that have arrived since the last call to
+    // update; since that happens pretty frequently, 60fps, that's probably good enough)
+    Keyboard.poll();
+    int flags = modifierFlags(
+      Keyboard.isKeyDown(Keyboard.KEY_LMENU) || Keyboard.isKeyDown(Keyboard.KEY_RMENU),
+      Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL),
+      Keyboard.isKeyDown(Keyboard.KEY_LMETA) || Keyboard.isKeyDown(Keyboard.KEY_RMETA),
+      Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT));
 
     // process keyboard events
     while (Keyboard.next()) {
@@ -66,12 +80,12 @@ public class LWJGLInput extends JavaInput {
 
       if (Keyboard.getEventKeyState()) {
         Key key = translateKey(keyCode);
-        if (key != null) emitKeyPress(time, key, true);
+        if (key != null) emitKeyPress(time, key, true, flags);
         char keyChar = Keyboard.getEventCharacter();
         if (!Character.isISOControl(keyChar)) emitKeyTyped(time, keyChar);
       } else {
         Key key = translateKey(keyCode);
-        if (key != null) emitKeyPress(time, key, false);
+        if (key != null) emitKeyPress(time, key, false, flags);
       }
     }
 
@@ -83,12 +97,12 @@ public class LWJGLInput extends JavaInput {
       int btnIdx = Mouse.getEventButton();
       if (btnIdx >= 0) {
         ButtonEvent.Id btn = getButton(btnIdx);
-        if (btn != null) emitMouseButton(time, m.x, m.y, btn, Mouse.getEventButtonState());
+        if (btn != null) emitMouseButton(time, m.x, m.y, btn, Mouse.getEventButtonState(), flags);
       }
       else {
         int wheel = Mouse.getEventDWheel();
-        if (wheel != 0) emitMouseWheel(time, m.x, m.y, wheel > 0 ? -1 : 1);
-        else emitMouseMotion(time, m.x, m.y, Mouse.getEventDX(), -Mouse.getEventDY());
+        if (wheel != 0) emitMouseWheel(time, m.x, m.y, wheel > 0 ? -1 : 1, flags);
+        else emitMouseMotion(time, m.x, m.y, Mouse.getEventDX(), -Mouse.getEventDY(), flags);
       }
     }
   }

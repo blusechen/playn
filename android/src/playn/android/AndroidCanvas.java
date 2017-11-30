@@ -23,6 +23,8 @@ import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.RectF;
 
+import pythagoras.f.FloatMath;
+
 import playn.core.*;
 
 public class AndroidCanvas extends Canvas {
@@ -97,6 +99,18 @@ public class AndroidCanvas extends Canvas {
 
   @Override public Canvas drawPoint(float x, float y) {
     canvas.drawPoint(x, y, currentState().prepareStroke());
+    isDirty = true;
+    return this;
+  }
+
+  @Override public Canvas drawArc(float cx, float cy, float r, float startAngle, float arcAngle) {
+    float left = cx - r;
+    float top = cy - r;
+    float right = cx + r;
+    float bottom = cy + r;
+    rectf.set(left, top, right, bottom);
+    canvas.drawArc(rectf, -FloatMath.toDegrees(startAngle), -FloatMath.toDegrees(arcAngle),
+                   false, currentState().prepareStroke());
     isDirty = true;
     return this;
   }
